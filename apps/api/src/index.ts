@@ -1,0 +1,12 @@
+import 'dotenv/config';
+import { createServer } from 'node:http';
+import { Server } from 'socket.io';
+import { createApp } from './app.js';
+import { configureSockets } from './realtime/socket.js';
+import { closeNotifications } from './services/notifications.js';
+import { initializePersistence } from './db/persistence.js';
+import { closeDb } from './db/client.js';
+import { allowedWebOrigins } from './config/origins.js';
+const boot=async()=>{await initializePersistence();const app=createApp(),server=createServer(app);const io=new Server(server,{cors:{origin:allowedWebOrigins()}});app.set('io',io);configureSockets(io);const port=Number(process.env.PORT||4000);server.listen(port,()=>console.info(`RoutePulse API listening on http://localhost:${port}`));
+const shutdown=()=>server.close(async()=>{io.close();await closeNotifications();await closeDb();process.exit(0)});process.on('SIGTERM',shutdown);process.on('SIGINT',shutdown);
+}; boot().catch(error=>{console.error('RoutePulse startup failed',error);process.exit(1)});
