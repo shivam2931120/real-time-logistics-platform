@@ -93,4 +93,8 @@ The demo uses MapLibre with a public demo style and requires no key. For a no-co
 
 ## Render and Vercel
 
-Create the Render services from `render.yaml`. Set `WEB_ORIGIN` on Render to the Vercel URL. On Vercel set `VITE_API_URL` to the Render API URL, `VITE_CLERK_PUBLISHABLE_KEY` to the Clerk publishable key, and `VITE_MAP_STYLE` if using a custom map style. Configure webhook URLs only after the Render API has a public HTTPS URL.
+The checked-in `render.yaml` creates one free web service in demo mode. It generates a private JWT secret automatically and deliberately omits PostgreSQL, Redis, Clerk, Razorpay, and SMTP credentials, so the hosted demo uses memory-backed data, inline simulated notifications, and demo payments. Free Render background workers are not available, so no worker is declared.
+
+After the web frontend is deployed, set `WEB_ORIGIN` on Render to its exact HTTPS origin and set `VITE_API_URL` on Vercel to the Render API URL. Set `VITE_CLERK_PUBLISHABLE_KEY` and switch the backend to `AUTH_MODE=clerk` only when Clerk is configured. Add `VITE_MAP_STYLE` only if using a custom map style. Configure webhook URLs only after the Render API has a public HTTPS URL.
+
+For a durable hosted deployment, add managed `DATABASE_URL` and `REDIS_URL`, run the migration and seed commands against the hosted database, and run `apps/api/dist/workers/notificationWorker.js` on a paid worker or another always-on worker host. Do not point RoutePulse at another application's database or Redis instance.

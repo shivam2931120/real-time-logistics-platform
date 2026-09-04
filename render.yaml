@@ -3,50 +3,15 @@ services:
     name: routepulse-api
     runtime: node
     plan: free
-    buildCommand: npm ci && npm run build -w @routepulse/shared && npm run build -w @routepulse/api
+    buildCommand: npm ci --include=dev && npm run build -w @routepulse/shared && npm run build -w @routepulse/api
     startCommand: npm run start -w @routepulse/api
     healthCheckPath: /health
     envVars:
       - key: NODE_VERSION
         value: 22
-      - key: DATABASE_URL
-        sync: false
-      - key: REDIS_URL
-        sync: false
-      - key: WEB_ORIGIN
-        sync: false
       - key: AUTH_MODE
-        value: clerk
-      - key: CLERK_SECRET_KEY
-        sync: false
-      - key: CLERK_WEBHOOK_SIGNING_SECRET
-        sync: false
-      - key: RAZORPAY_KEY_ID
-        sync: false
-      - key: RAZORPAY_KEY_SECRET
-        sync: false
-      - key: RAZORPAY_WEBHOOK_SECRET
-        sync: false
-      - key: GOOGLE_SMTP_USER
-        sync: false
-      - key: GOOGLE_SMTP_APP_PASSWORD
-        sync: false
-      - key: EMAIL_FROM
-        sync: false
-  - type: worker
-    name: routepulse-notification-worker
-    runtime: node
-    plan: free
-    buildCommand: npm ci && npm run build -w @routepulse/shared && npm run build -w @routepulse/api
-    startCommand: node apps/api/dist/workers/notificationWorker.js
-    envVars:
-      - key: NODE_VERSION
-        value: 22
-      - key: REDIS_URL
-        sync: false
-      - key: GOOGLE_SMTP_USER
-        sync: false
-      - key: GOOGLE_SMTP_APP_PASSWORD
-        sync: false
-      - key: EMAIL_FROM
-        sync: false
+        value: demo
+      - key: JWT_SECRET
+        generateValue: true
+      - key: WEB_ORIGIN
+        value: http://localhost:5173,http://127.0.0.1:5173
