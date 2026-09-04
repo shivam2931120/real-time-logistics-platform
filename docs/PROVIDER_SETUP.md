@@ -14,6 +14,49 @@ Current local completion requires no additional values: demo JWT auth, PostgreSQ
 
 Do not paste secret values into chat or commit either environment file. Set them directly in the named local file or hosting dashboard.
 
+## Complete environment reference
+
+### Backend: `apps/api/.env`
+
+| Variable | When it is needed |
+|---|---|
+| `PORT` | Optional; API port, defaults to `4000` |
+| `WEB_ORIGIN` | Required when the frontend is hosted; comma-separated allowed origins |
+| `JWT_SECRET` | Required for secure demo JWT sessions; use a long random value outside local development |
+| `AUTH_MODE` | Set to `demo` for seeded login or `clerk` for Clerk sessions |
+| `DEFAULT_ORGANIZATION_ID` | Clerk fallback tenant; local demo uses `org_demo` |
+| `DATABASE_URL` | Required for durable PostgreSQL persistence; without it the API uses memory-demo mode |
+| `REDIS_URL` | Required for BullMQ notification queues and the notification worker |
+| `CLERK_SECRET_KEY` | Required only when `AUTH_MODE=clerk` |
+| `CLERK_WEBHOOK_SIGNING_SECRET` | Required to accept Clerk webhooks |
+| `RAZORPAY_KEY_ID` | Required to enable Razorpay checkout |
+| `RAZORPAY_KEY_SECRET` | Required to create and verify Razorpay payments |
+| `RAZORPAY_WEBHOOK_SECRET` | Required to verify Razorpay webhooks |
+| `GOOGLE_SMTP_USER` | Required to send real email instead of simulated notifications |
+| `GOOGLE_SMTP_APP_PASSWORD` | Required with `GOOGLE_SMTP_USER`; use an app password |
+| `EMAIL_FROM` | Sender address for real email |
+| `SMTP_HOST` | Optional SMTP override; defaults to `smtp.gmail.com` |
+| `SMTP_PORT` | Optional SMTP override; defaults to `465` |
+| `SMTP_SECURE` | Optional SMTP TLS override; defaults to `true` |
+
+### Frontend: `apps/web/.env.local`
+
+| Variable | When it is needed |
+|---|---|
+| `VITE_API_URL` | API base URL; local default is `http://127.0.0.1:4000` |
+| `VITE_CLERK_PUBLISHABLE_KEY` | Required only for Clerk login; leave blank for role-based demo login |
+| `VITE_MAP_STYLE` | Optional MapLibre style URL |
+
+Razorpay's public checkout key is returned by the authenticated checkout API; no frontend Razorpay secret or `VITE_RAZORPAY_*` variable is needed.
+
+### Test and deployment controls
+
+| Variable | Purpose |
+|---|---|
+| `RUN_DB_TESTS=1` | Opts into the PostgreSQL integration test |
+| `API_URL` | Optional base URL override for `smoke:runtime` |
+| `NODE_VERSION=22` | Render runtime selection, already declared in `render.yaml` |
+
 ## Clerk
 
 1. Create a Clerk application and copy the publishable key into Vercel as `VITE_CLERK_PUBLISHABLE_KEY`.
