@@ -11,6 +11,8 @@ services:
         value: 22
       - key: AUTH_MODE
         value: demo
+      - key: QUEUE_MODE
+        value: inline
       - key: JWT_SECRET
         generateValue: true
       - key: WEB_ORIGIN

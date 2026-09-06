@@ -26,7 +26,8 @@ Do not paste secret values into chat or commit either environment file. Set them
 | `AUTH_MODE` | Set to `demo` for seeded login or `clerk` for Clerk sessions |
 | `DEFAULT_ORGANIZATION_ID` | Clerk fallback tenant; local demo uses `org_demo` |
 | `DATABASE_URL` | Required for durable PostgreSQL persistence; without it the API uses memory-demo mode |
-| `REDIS_URL` | Required for BullMQ notification queues and the notification worker |
+| `REDIS_URL` | Required for BullMQ notification queues and the notification worker when `QUEUE_MODE=bullmq` |
+| `QUEUE_MODE` | Use `inline` on a web-only service; use `bullmq` only when a worker is running against the same Redis |
 | `CLERK_SECRET_KEY` | Required only when `AUTH_MODE=clerk` |
 | `CLERK_WEBHOOK_SIGNING_SECRET` | Required to accept Clerk webhooks |
 | `RAZORPAY_KEY_ID` | Required to enable Razorpay checkout |
@@ -97,4 +98,4 @@ The checked-in `render.yaml` creates one free web service in demo mode. It gener
 
 After the web frontend is deployed, set `WEB_ORIGIN` on Render to its exact HTTPS origin and set `VITE_API_URL` on Vercel to the Render API URL. Set `VITE_CLERK_PUBLISHABLE_KEY` and switch the backend to `AUTH_MODE=clerk` only when Clerk is configured. Add `VITE_MAP_STYLE` only if using a custom map style. Configure webhook URLs only after the Render API has a public HTTPS URL.
 
-For a durable hosted deployment, add managed `DATABASE_URL` and `REDIS_URL`, run the migration and seed commands against the hosted database, and run `apps/api/dist/workers/notificationWorker.js` on a paid worker or another always-on worker host. Do not point RoutePulse at another application's database or Redis instance.
+For a durable hosted deployment, add managed `DATABASE_URL`, run the migration and seed commands against the hosted database, and keep `QUEUE_MODE=inline` on a web-only service. To enable BullMQ, add managed `REDIS_URL`, set `QUEUE_MODE=bullmq`, and run `apps/api/dist/workers/notificationWorker.js` on a paid worker or another always-on worker host. Do not point RoutePulse at another application's database or Redis instance.
