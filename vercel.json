@@ -1,0 +1,6 @@
+{
+  "buildCommand": "npm run build -w @routepulse/shared && npm run build -w @routepulse/web",
+  "outputDirectory": "apps/web/dist",
+  "installCommand": "npm ci",
+  "framework": "vite"
+}
