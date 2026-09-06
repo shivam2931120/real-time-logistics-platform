@@ -3,8 +3,7 @@ services:
     name: routepulse-api
     runtime: node
     plan: free
-    buildCommand: npm ci --include=dev && npm run build -w @routepulse/shared && npm run build -w @routepulse/api
-    preDeployCommand: node apps/api/dist/db/migrate.js
+    buildCommand: npm ci --include=dev && npm run build -w @routepulse/shared && npm run build -w @routepulse/api && node apps/api/dist/db/migrate.js
     startCommand: npm run start -w @routepulse/api
     healthCheckPath: /health
     envVars:
