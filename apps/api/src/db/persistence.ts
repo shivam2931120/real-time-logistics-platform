@@ -19,6 +19,10 @@ const iso = (value: Date | string) => value instanceof Date ? value.toISOString(
 
 export async function initializePersistence() {
   if (!dbEnabled || !pool) return;
+  const userRows = await pool.query(`SELECT id::text,organization_id::text,email,name,role FROM users WHERE organization_id=$1`, [demoOrganizationUuid]);
+  for (const row of userRows.rows) {
+    const id=localId(row.id,users);const user:User={id,organizationId:organizationDomainId(row.organization_id),email:row.email,name:row.name,role:row.role};const index=users.findIndex(candidate=>candidate.id===id);if(index>=0)users[index]=user;else users.push(user);
+  }
   const driverRows = await pool.query(`SELECT id::text,user_id::text,status,capacity_kg,current_lat,current_lng,last_seen_at FROM drivers WHERE organization_id=$1`, [demoOrganizationUuid]);
   const orderRows = await pool.query(`SELECT id::text,organization_id::text,tracking_code,customer_name,customer_email,pickup,dropoff,package_weight_kg,priority,status,amount_minor,currency,payment_status,assigned_driver_id::text,promised_at,delivered_at,created_at,updated_at FROM orders WHERE organization_id=$1 ORDER BY created_at DESC`, [demoOrganizationUuid]);
   const eventRows = await pool.query(`SELECT id::text,order_id::text,type,message,actor_id::text,created_at FROM order_events WHERE organization_id=$1 ORDER BY created_at`, [demoOrganizationUuid]);
@@ -30,7 +34,7 @@ export async function initializePersistence() {
 async function writeOrder(order: Order, db: Pick<PoolClient, 'query'>) {
   const orgId = organizationUuid(order.organizationId);
   await db.query(`INSERT INTO orders(id,organization_id,tracking_code,customer_name,customer_email,pickup,dropoff,package_weight_kg,priority,status,amount_minor,currency,payment_status,assigned_driver_id,promised_at,delivered_at,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,$8,$9,$10::order_status,$11,$12,$13,$14,$15,$16,$17,$18) ON CONFLICT(id) DO UPDATE SET customer_name=EXCLUDED.customer_name,customer_email=EXCLUDED.customer_email,pickup=EXCLUDED.pickup,dropoff=EXCLUDED.dropoff,package_weight_kg=EXCLUDED.package_weight_kg,priority=EXCLUDED.priority,status=EXCLUDED.status,amount_minor=EXCLUDED.amount_minor,currency=EXCLUDED.currency,payment_status=EXCLUDED.payment_status,assigned_driver_id=EXCLUDED.assigned_driver_id,promised_at=EXCLUDED.promised_at,delivered_at=EXCLUDED.delivered_at,updated_at=EXCLUDED.updated_at`, [asUuid(order.id), orgId, order.trackingCode, order.customerName, order.customerEmail, JSON.stringify(order.pickup), JSON.stringify(order.dropoff), order.packageWeightKg, order.priority, order.status, Math.round(order.amount * 100), order.currency, order.paymentStatus, order.assignedDriverId ? asUuid(order.assignedDriverId) : null, order.promisedAt, order.deliveredAt || null, order.createdAt, order.updatedAt]);
-  for (const e of order.events) await db.query(`INSERT INTO order_events(id,organization_id,order_id,type,message,actor_id,created_at) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(id) DO NOTHING`, [asUuid(e.id), orgId, asUuid(order.id), e.type, e.message, e.actorId ? asUuid(e.actorId) : null, e.createdAt]);
+  for (const e of order.events) await db.query(`INSERT INTO order_events(id,organization_id,order_id,type,message,actor_id,created_at) VALUES($1,$2,$3,$4,$5,(SELECT id FROM users WHERE id=$6),$7) ON CONFLICT(id) DO NOTHING`, [asUuid(e.id), orgId, asUuid(order.id), e.type, e.message, e.actorId ? asUuid(e.actorId) : null, e.createdAt]);
 }
 
 async function writeDriver(driver: Driver, db: Pick<PoolClient, 'query'>) {

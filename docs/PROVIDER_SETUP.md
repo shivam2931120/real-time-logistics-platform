@@ -63,10 +63,10 @@ Razorpay's public checkout key is returned by the authenticated checkout API; no
 1. Create a Clerk application and copy the publishable key into Vercel as `VITE_CLERK_PUBLISHABLE_KEY`.
 2. Copy the secret key into Render as `CLERK_SECRET_KEY`.
 3. Set `AUTH_MODE=clerk`.
-4. Configure Organizations and use these organization roles: `org:admin`, `org:dispatcher`, `org:driver`, and `org:customer`.
-5. In Clerk Dashboard → Webhooks, add `https://<render-api>/api/webhooks/clerk`; subscribe to user create/update/delete events and copy its signing secret into Render as `CLERK_WEBHOOK_SIGNING_SECRET`.
+4. In Clerk Dashboard → Users, open each user and set public metadata to one RoutePulse role, for example `{ "role": "admin" }`. Valid values are `admin`, `dispatcher`, `driver`, and `customer`. This keeps the four application roles on Clerk's free plan; custom Clerk organization roles are not required.
+5. In Clerk Dashboard → Webhooks, add `https://<render-api>/api/webhooks/clerk`; subscribe to `user.created`, `user.updated`, and `user.deleted`, then copy its signing secret into Render as `CLERK_WEBHOOK_SIGNING_SECRET`.
 
-The API accepts Clerk session tokens, while the webhook synchronizes users into PostgreSQL. Keep organization-to-tenant mapping aligned before enabling multiple organizations.
+The API accepts Clerk session tokens, while the webhook synchronizes user identity, email, and public-metadata role into PostgreSQL. The free deployment uses `DEFAULT_ORGANIZATION_ID=org_demo` as one tenant. Keep organization-to-tenant mapping aligned before enabling multiple organizations.
 
 ## Razorpay
 
