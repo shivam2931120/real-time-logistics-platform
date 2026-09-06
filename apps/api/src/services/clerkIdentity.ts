@@ -1,6 +1,8 @@
+import { createClerkClient } from '@clerk/backend';
 import type { Role, User } from '@routepulse/shared';
 import { pool } from '../db/client.js';
 import { demoOrganizationId, demoOrganizationUuid } from '../db/persistence.js';
+import { upsertClerkUser } from './clerkUserSync.js';
 
 type ClerkClaims = {
   sub?: string;
@@ -52,6 +54,20 @@ export async function resolveClerkUser(claims: ClerkClaims): Promise<User> {
         name: row.name,
         role: appRole(row.role) || 'customer',
       };
+    }
+
+    const secretKey = process.env.CLERK_SECRET_KEY;
+    if (secretKey) {
+      const clerkUser = await createClerkClient({ secretKey }).users.getUser(clerkUserId);
+      const email = clerkUser.emailAddresses.find(address => address.id === clerkUser.primaryEmailAddressId)?.emailAddress
+        || clerkUser.emailAddresses[0]?.emailAddress
+        || '';
+      return upsertClerkUser({
+        clerkUserId,
+        email,
+        name: [clerkUser.firstName, clerkUser.lastName].filter(Boolean).join(' ') || email.split('@')[0] || 'RoutePulse user',
+        role: clerkUser.publicMetadata.role,
+      });
     }
   }
 
