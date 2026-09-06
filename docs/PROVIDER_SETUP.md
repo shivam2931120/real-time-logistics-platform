@@ -4,13 +4,13 @@ The source tree contains no provider secrets. Enter backend values in local `app
 
 Current local completion requires no additional values: demo JWT auth, PostgreSQL, Redis queue insertion, simulated payment, and simulated email are usable as-is. To activate external services, provide only the values for the provider you want enabled:
 
-| Provider | Put these variables here |
-|---|---|
-| Clerk | `CLERK_SECRET_KEY`, `CLERK_WEBHOOK_SIGNING_SECRET`, and `AUTH_MODE=clerk` in `apps/api/.env`; `VITE_CLERK_PUBLISHABLE_KEY` in `apps/web/.env.local` |
-| Razorpay | `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET` in `apps/api/.env` |
-| Google SMTP | `GOOGLE_SMTP_USER`, `GOOGLE_SMTP_APP_PASSWORD`, `EMAIL_FROM` in `apps/api/.env` |
-| Hosted API | managed `DATABASE_URL`, managed `REDIS_URL`, and deployed `WEB_ORIGIN` in Render |
-| Hosted web | deployed `VITE_API_URL` and optional `VITE_MAP_STYLE` in Vercel |
+| Provider    | Put these variables here                                                                                                                            |
+| ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Clerk       | `CLERK_SECRET_KEY`, `CLERK_WEBHOOK_SIGNING_SECRET`, and `AUTH_MODE=clerk` in `apps/api/.env`; `VITE_CLERK_PUBLISHABLE_KEY` in `apps/web/.env.local` |
+| Razorpay    | `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET` in `apps/api/.env`                                                              |
+| Google SMTP | `GOOGLE_SMTP_USER`, `GOOGLE_SMTP_APP_PASSWORD`, `EMAIL_FROM` in `apps/api/.env`                                                                     |
+| Hosted API  | managed `DATABASE_URL`, managed `REDIS_URL`, and deployed `WEB_ORIGIN` in Render                                                                    |
+| Hosted web  | deployed `VITE_API_URL` and optional `VITE_MAP_STYLE` in Vercel                                                                                     |
 
 Do not paste secret values into chat or commit either environment file. Set them directly in the named local file or hosting dashboard.
 
@@ -18,44 +18,46 @@ Do not paste secret values into chat or commit either environment file. Set them
 
 ### Backend: `apps/api/.env`
 
-| Variable | When it is needed |
-|---|---|
-| `PORT` | Optional; API port, defaults to `4000` |
-| `WEB_ORIGIN` | Required when the frontend is hosted; comma-separated allowed origins |
-| `JWT_SECRET` | Required for secure demo JWT sessions; use a long random value outside local development |
-| `AUTH_MODE` | Set to `demo` for seeded login or `clerk` for Clerk sessions |
-| `DEFAULT_ORGANIZATION_ID` | Clerk fallback tenant; local demo uses `org_demo` |
-| `DATABASE_URL` | Required for durable PostgreSQL persistence; without it the API uses memory-demo mode |
-| `REDIS_URL` | Required for BullMQ notification queues and the notification worker when `QUEUE_MODE=bullmq` |
-| `QUEUE_MODE` | Use `inline` on a web-only service; use `bullmq` only when a worker is running against the same Redis |
-| `CLERK_SECRET_KEY` | Required only when `AUTH_MODE=clerk` |
-| `CLERK_WEBHOOK_SIGNING_SECRET` | Required to accept Clerk webhooks |
-| `RAZORPAY_KEY_ID` | Required to enable Razorpay checkout |
-| `RAZORPAY_KEY_SECRET` | Required to create and verify Razorpay payments |
-| `RAZORPAY_WEBHOOK_SECRET` | Required to verify Razorpay webhooks |
-| `GOOGLE_SMTP_USER` | Required to send real email instead of simulated notifications |
-| `GOOGLE_SMTP_APP_PASSWORD` | Required with `GOOGLE_SMTP_USER`; use an app password |
-| `EMAIL_FROM` | Sender address for real email |
-| `SMTP_HOST` | Optional SMTP override; defaults to `smtp.gmail.com` |
-| `SMTP_PORT` | Optional SMTP override; defaults to `465` |
-| `SMTP_SECURE` | Optional SMTP TLS override; defaults to `true` |
+| Variable                       | When it is needed                                                                                     |
+| ------------------------------ | ----------------------------------------------------------------------------------------------------- |
+| `PORT`                         | Optional; API port, defaults to `4000`                                                                |
+| `WEB_ORIGIN`                   | Required when the frontend is hosted; comma-separated allowed origins                                 |
+| `JWT_SECRET`                   | Required for secure demo JWT sessions; use a long random value outside local development              |
+| `AUTH_MODE`                    | Set to `demo` for seeded login or `clerk` for Clerk sessions                                          |
+| `DEFAULT_ORGANIZATION_ID`      | Clerk fallback tenant; local demo uses `org_demo`                                                     |
+| `DATABASE_URL`                 | Required for durable PostgreSQL persistence; without it the API uses memory-demo mode                 |
+| `DB_POOL_MAX`                  | Optional PostgreSQL connection cap; defaults to `5` for free poolers                                  |
+| `DB_CONNECTION_TIMEOUT_MS`     | Optional database connect timeout; defaults to `15000`                                                |
+| `REDIS_URL`                    | Required for BullMQ notification queues and the notification worker when `QUEUE_MODE=bullmq`          |
+| `QUEUE_MODE`                   | Use `inline` on a web-only service; use `bullmq` only when a worker is running against the same Redis |
+| `CLERK_SECRET_KEY`             | Required only when `AUTH_MODE=clerk`                                                                  |
+| `CLERK_WEBHOOK_SIGNING_SECRET` | Required to accept Clerk webhooks                                                                     |
+| `RAZORPAY_KEY_ID`              | Required to enable Razorpay checkout                                                                  |
+| `RAZORPAY_KEY_SECRET`          | Required to create and verify Razorpay payments                                                       |
+| `RAZORPAY_WEBHOOK_SECRET`      | Required to verify Razorpay webhooks                                                                  |
+| `GOOGLE_SMTP_USER`             | Required to send real email instead of simulated notifications                                        |
+| `GOOGLE_SMTP_APP_PASSWORD`     | Required with `GOOGLE_SMTP_USER`; use an app password                                                 |
+| `EMAIL_FROM`                   | Sender address for real email                                                                         |
+| `SMTP_HOST`                    | Optional SMTP override; defaults to `smtp.gmail.com`                                                  |
+| `SMTP_PORT`                    | Optional SMTP override; defaults to `465`                                                             |
+| `SMTP_SECURE`                  | Optional SMTP TLS override; defaults to `true`                                                        |
 
 ### Frontend: `apps/web/.env.local`
 
-| Variable | When it is needed |
-|---|---|
-| `VITE_API_URL` | API base URL; local default is `http://127.0.0.1:4000` |
+| Variable                     | When it is needed                                                    |
+| ---------------------------- | -------------------------------------------------------------------- |
+| `VITE_API_URL`               | API base URL; local default is `http://127.0.0.1:4000`               |
 | `VITE_CLERK_PUBLISHABLE_KEY` | Required only for Clerk login; leave blank for role-based demo login |
-| `VITE_MAP_STYLE` | Optional MapLibre style URL |
+| `VITE_MAP_STYLE`             | Optional MapLibre style URL                                          |
 
 Razorpay's public checkout key is returned by the authenticated checkout API; no frontend Razorpay secret or `VITE_RAZORPAY_*` variable is needed.
 
 ### Test and deployment controls
 
-| Variable | Purpose |
-|---|---|
-| `RUN_DB_TESTS=1` | Opts into the PostgreSQL integration test |
-| `API_URL` | Optional base URL override for `smoke:runtime` |
+| Variable          | Purpose                                                     |
+| ----------------- | ----------------------------------------------------------- |
+| `RUN_DB_TESTS=1`  | Opts into the PostgreSQL integration test                   |
+| `API_URL`         | Optional base URL override for `smoke:runtime`              |
 | `NODE_VERSION=22` | Render runtime selection, already declared in `render.yaml` |
 
 ## Clerk

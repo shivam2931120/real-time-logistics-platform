@@ -1,6 +1,6 @@
 # RoutePulse — Product Requirements Document
 
-**Status:** Implementation baseline
+**Status:** Implemented release baseline
 **Product:** Multi-tenant real-time last-mile logistics control tower
 **Primary users:** dispatchers, drivers, customers, operations admins
 
@@ -23,12 +23,12 @@ Small and mid-sized delivery teams often coordinate jobs through spreadsheets, c
 
 ## 4. Personas and roles
 
-| Role | Jobs to be done | Main permissions |
-|---|---|---|
-| Admin | configure organization, pricing and team; inspect audit/analytics | all tenant resources |
-| Dispatcher | create orders, plan routes, assign drivers, monitor exceptions | orders, routes, fleet, analytics |
-| Driver | view assigned route, share location, update delivery status/proof | own assignments only |
-| Customer | track own delivery and pay outstanding balance | own public tracking/payment session |
+| Role       | Jobs to be done                                                   | Main permissions                    |
+| ---------- | ----------------------------------------------------------------- | ----------------------------------- |
+| Admin      | configure organization, pricing and team; inspect audit/analytics | all tenant resources                |
+| Dispatcher | create orders, plan routes, assign drivers, monitor exceptions    | orders, routes, fleet, analytics    |
+| Driver     | view assigned route, share location, update delivery status/proof | own assignments only                |
+| Customer   | track own delivery and pay outstanding balance                    | own public tracking/payment session |
 
 ## 5. MVP functional requirements
 
@@ -40,7 +40,7 @@ Small and mid-sized delivery teams often coordinate jobs through spreadsheets, c
 
 ### Order lifecycle
 
-- Create delivery with customer, pickup/drop-off, coordinates, service priority, package details, price, and promised window.
+- Create delivery with customer, pickup/drop-off, coordinates, service priority, package details, price, instructions, recipient PIN, and start/end window.
 - State machine: `pending → assigned → picked_up → in_transit → delivered`; `pending|assigned → cancelled`; operational failures may enter `failed`.
 - Search/filter order list and show a chronological event timeline.
 
@@ -57,6 +57,19 @@ Small and mid-sized delivery teams often coordinate jobs through spreadsheets, c
 - Server validates coordinate range, assignment, timestamp, and per-client update rate.
 - WebSocket rooms isolate tenant operations and individual tracking codes.
 - Dispatcher map updates vehicle markers and order status without refresh.
+- A privacy-minimized public tracking URL exposes live location, ETA, window, timeline, and proof-completion summary without an account.
+
+### Driver workflow and proof
+
+- Drivers accept or reject assignments, open navigation, share location, advance valid states, and report operational exceptions.
+- Completion requires the recipient PIN, recipient name, and typed electronic signature; proof metadata is durable and no files are uploaded.
+- Entering the configurable drop-off geofence creates one arrival event and pushes it to tenant and public tracking rooms.
+
+### Operations administration
+
+- Dispatchers work a pending-order queue against capacity-eligible drivers and manually assign selected pairings.
+- Exception Center supports typed categories, open/resolved filtering, resolution notes, and audit history.
+- Admins update roles, organization timezone, ETA speed, geofence radius, and notification enablement.
 
 ### Payments
 
@@ -94,9 +107,9 @@ Small and mid-sized delivery teams often coordinate jobs through spreadsheets, c
 - **Responsive design:** usable dispatcher view from 360 px; driver workflow optimized for mobile.
 - **Observability:** structured request logs, request IDs, health state, queue/notification status, audit events.
 
-## 8. Out of scope for MVP
+## 8. Out of scope for this release
 
-Proof-of-delivery image storage, native mobile background tracking, traffic-aware commercial routing, multi-depot inventory, driver payroll, refunds/disputes, international tax, carrier marketplace, and legally binding electronic signatures.
+Proof-of-delivery image storage, native mobile background tracking, traffic-aware commercial routing, multi-depot inventory, driver payroll, refunds/disputes, international tax, carrier marketplace, and qualified legal-signature-provider workflows.
 
 ## 9. Release acceptance criteria
 
@@ -108,6 +121,5 @@ Proof-of-delivery image storage, native mobile background tracking, traffic-awar
 
 ## 10. Roadmap
 
-- **R1:** production PostgreSQL repository, migrations, OIDC, Stripe webhooks, SMTP/SMS provider, Redis/BullMQ workers.
-- **R2:** traffic-aware routing, delivery windows/driver shifts, proof of delivery, geofences and exception workflows.
-- **R3:** native driver app with background location, offline sync, multi-depot capacity planning, forecasting, enterprise SSO.
+- **Current:** PostgreSQL, Clerk, Razorpay, SMTP/BullMQ adapters, public tracking, delivery windows, proof, geofences, exceptions, notifications, settings, roles, and audit.
+- **Next:** traffic-aware routing, driver shifts, native background location, offline sync, multi-depot capacity planning, forecasting, enterprise SSO, and image proof when storage is approved.

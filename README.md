@@ -5,6 +5,11 @@ A complete, runnable real-time last-mile logistics control tower with dispatcher
 ## Included
 
 - Live MapLibre fleet map and driver browser geolocation
+- Public no-login tracking with live position, ETA, delivery window, and timeline
+- Manual dispatch, capacity-aware assignment, late-risk ETAs, and geofence arrivals
+- Exception workflows and a mobile driver workspace with accept/reject/navigation actions
+- PIN-verified proof of delivery with a typed electronic signature (no uploads)
+- Notification history, team roles, organization settings, and audit history
 - Authenticated Socket.IO rooms for tenant/order updates
 - Order state machine, nearest-driver assignment, Haversine + 2-opt route optimization
 - BullMQ/Redis notification queue with safe simulated fallback
@@ -66,8 +71,9 @@ The first command runs TypeScript checks, API/web tests, and production builds. 
 2. Open Deliveries and select **Auto assign**.
 3. Sign out and enter as Driver; advance the active job and optionally share browser geolocation.
 4. Return as Dispatcher to see the updated status and analytics.
-5. Open an unpaid delivery and use **Confirm demo payment**.
+5. Open an unpaid delivery and complete Razorpay checkout (or demo confirmation when unconfigured).
+6. Share `/track/<tracking-code>` with a customer; no login is required.
 
 ## Honest production boundary
 
-The application has a working PostgreSQL persistence layer and repeatable baseline migration, plus configurable Clerk, Razorpay, BullMQ, and SMTP seams. A real production launch still requires managed PostgreSQL/Redis, completed Clerk organization mapping, a Redis Socket.IO adapter for multiple API instances, transactional outbox delivery, real provider credentials, a managed map/routing SLA, object storage for proof of delivery, monitoring, backups, privacy retention jobs, load testing, and native/background driver tracking where required.
+The application has a working PostgreSQL persistence layer and repeatable migrations, plus configurable Clerk, Razorpay, BullMQ, and SMTP adapters. A high-scale launch still requires a Redis Socket.IO adapter for multiple API instances, a transactional outbox, a managed map/routing SLA, monitoring, backups, privacy retention jobs, load testing, and native/background driver tracking. Proof is intentionally text/PIN based; image uploads are out of scope.

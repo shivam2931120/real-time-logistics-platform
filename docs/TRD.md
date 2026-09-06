@@ -7,8 +7,8 @@ RoutePulse is a TypeScript monorepo with a React/Vite web client, Express API, S
 ```text
 React Web ──HTTP/JWT──> Express API ──> Repository (PostgreSQL / memory fallback)
     │                       │   │
-    └──Socket.IO────────────┘   ├──> Payment adapter (demo / Stripe)
-                               ├──> Notification adapter (console / SMTP-SMS)
+    └──Socket.IO────────────┘   ├──> Payment adapter (demo / Razorpay)
+                               ├──> Notification adapter (simulated / Gmail SMTP)
                                └──> BullMQ ──> Redis ──> Worker
 Driver geolocation ──Socket.IO──> validated location store + tenant/tracking rooms
 ```
@@ -23,17 +23,19 @@ Driver geolocation ──Socket.IO──> validated location store + tenant/trac
 
 ## 3. Domain model
 
-| Entity | Important fields |
-|---|---|
-| Organization | id, name, timezone |
-| User | id, organizationId, name, email, role |
-| Driver | id, userId, status, capacityKg, currentLat/Lng, lastSeenAt |
-| Order | id, organizationId, trackingCode, customer, stops, status, priority, amount, paymentStatus, assignedDriverId, timestamps |
-| Route | id, driverId, date, orderedStops, distanceKm, durationMin, status |
-| OrderEvent | id, orderId, type, actorId, payload, createdAt |
-| Notification | id, orderId, channel, recipient, template, status, attempts |
-| Payment | id, orderId, provider, providerRef, amount, currency, status |
-| AuditEvent | tenant, actor, action, resourceType/id, metadata, createdAt |
+| Entity            | Important fields                                                                                                                                  |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Organization      | id, name, timezone, ETA speed, geofence radius, notification setting                                                                              |
+| User              | id, organizationId, name, email, role                                                                                                             |
+| Driver            | id, userId, status, capacityKg, currentLat/Lng, lastSeenAt                                                                                        |
+| Order             | id, organizationId, trackingCode, customer, stops, delivery window/notes, PIN hash, ETA risk, proof, status/payment, assignedDriverId, timestamps |
+| Route             | id, driverId, date, orderedStops, distanceKm, durationMin, status                                                                                 |
+| OrderEvent        | id, orderId, type, actorId, payload, createdAt                                                                                                    |
+| Notification      | id, orderId, channel, recipient, template, status, attempts                                                                                       |
+| Payment           | id, orderId, provider, providerRef, amount, currency, status                                                                                      |
+| AuditEvent        | tenant, actor, action, resourceType/id, metadata, createdAt                                                                                       |
+| DeliveryException | orderId, type, description, status, resolution, actor/timestamps                                                                                  |
+| ProofOfDelivery   | orderId, driverId, recipientName, signatureData, createdAt                                                                                        |
 
 Production indexes: `(organization_id,status,created_at)`, `(assigned_driver_id,status)`, unique `tracking_code`, unique `(provider,provider_ref)`, and `(order_id,created_at)` for events.
 
@@ -41,21 +43,31 @@ Production indexes: `(organization_id,status,created_at)`, `(assigned_driver_id,
 
 All private endpoints require `Authorization: Bearer <JWT>`. Demo login accepts a role and returns a seeded identity. Mutations support `Idempotency-Key` where replay could duplicate work.
 
-| Method | Route | Roles | Purpose |
-|---|---|---|---|
-| POST | `/api/auth/demo` | public | issue demo JWT |
-| GET | `/api/me` | all | current identity |
-| GET/POST | `/api/orders` | ops / dispatcher+ | list or create orders |
-| GET | `/api/orders/:id` | authorized | order and timeline |
-| PATCH | `/api/orders/:id/status` | driver/dispatcher/admin | validated transition |
-| POST | `/api/orders/:id/assign` | dispatcher/admin | manual or nearest-driver assignment |
-| POST | `/api/routes/optimize` | dispatcher/admin | capacity-aware stop ordering |
-| GET | `/api/drivers` | dispatcher/admin | tenant fleet state |
-| POST | `/api/payments/:orderId/checkout` | dispatcher/admin/customer target | Razorpay order or demo session |
-| POST | `/api/payments/demo/:orderId/confirm` | demo only | simulate settlement |
-| GET | `/api/analytics/summary` | dispatcher/admin | KPIs and trends |
-| GET | `/api/track/:code` | public | privacy-minimized tracking snapshot |
-| GET | `/health` | public | liveness and adapter modes |
+| Method    | Route                                               | Roles                            | Purpose                                       |
+| --------- | --------------------------------------------------- | -------------------------------- | --------------------------------------------- |
+| POST      | `/api/auth/demo`                                    | public                           | issue demo JWT                                |
+| GET       | `/api/me`                                           | all                              | current identity                              |
+| GET/POST  | `/api/orders`                                       | ops / dispatcher+                | list or create orders                         |
+| GET       | `/api/orders/:id`                                   | authorized                       | order and timeline                            |
+| PATCH     | `/api/orders/:id/status`                            | driver/dispatcher/admin          | validated transition                          |
+| POST      | `/api/orders/:id/assign`                            | dispatcher/admin                 | manual or nearest-driver assignment           |
+| POST      | `/api/orders/:id/accept`                            | assigned driver                  | accept assignment                             |
+| POST      | `/api/orders/:id/reject`                            | assigned driver                  | reject and release assignment                 |
+| POST      | `/api/orders/:id/proof`                             | assigned driver                  | verify PIN and atomically complete with proof |
+| POST      | `/api/routes/optimize`                              | dispatcher/admin                 | capacity-aware stop ordering                  |
+| GET       | `/api/drivers`                                      | dispatcher/admin                 | tenant fleet state                            |
+| PATCH     | `/api/drivers/:id`                                  | dispatcher/admin                 | update operational status/capacity            |
+| GET/POST  | `/api/exceptions`, `/api/orders/:id/exceptions`     | operations/assigned driver       | exception queue and reporting                 |
+| PATCH     | `/api/exceptions/:id/resolve`                       | dispatcher/admin                 | resolve an exception                          |
+| GET/PATCH | `/api/notifications`, `/api/notifications/:id/read` | all                              | in-app history and read state                 |
+| GET/PATCH | `/api/admin/users`, `/api/admin/users/:id/role`     | admin                            | users and Clerk-aligned roles                 |
+| GET       | `/api/admin/audit`                                  | admin                            | tenant audit history                          |
+| GET/PUT   | `/api/settings`                                     | operations/admin                 | read/update organization controls             |
+| POST      | `/api/payments/:orderId/checkout`                   | dispatcher/admin/customer target | Razorpay order or demo session                |
+| POST      | `/api/payments/demo/:orderId/confirm`               | demo only                        | simulate settlement                           |
+| GET       | `/api/analytics/summary`                            | dispatcher/admin                 | KPIs and trends                               |
+| GET       | `/api/track/:code`                                  | public                           | privacy-minimized tracking snapshot           |
+| GET       | `/health`                                           | public                           | liveness and adapter modes                    |
 
 Socket client events: `location:update`, `order:subscribe`. Server events: `driver:location`, `order:updated`, `notification:updated`. Tenant room membership is derived from authenticated claims, never supplied tenant IDs.
 
@@ -64,12 +76,12 @@ Socket client events: `location:update`, `order:subscribe`. Server events: `driv
 - The API owns lifecycle validation; clients cannot set arbitrary order states.
 - Assignment and driver availability must commit atomically in a durable repository.
 - Payment callbacks are idempotent on provider event/reference.
-- Location is high-volume ephemeral state; latest point is cached while material order events are durable.
+- Location is high-volume operational state; the latest driver point and material arrival events are durable.
 - The database is authoritative; queue insertion follows durable job/outbox creation in the production repository.
 
 ## 6. Optimization
 
-Input is a depot/current position, candidate stops with coordinates/demand, vehicle capacity, and service minutes. The MVP rejects stops exceeding capacity, builds a nearest-neighbor route using Haversine distance, improves it using bounded 2-opt swaps, and estimates duration at a configurable urban average speed. It is deterministic and explainable, but does not use live traffic, delivery-window constraints, or global VRP optimization.
+Input is a depot/current position, candidate stops with coordinates/demand, vehicle capacity, and service minutes. The service rejects stops exceeding capacity, builds a nearest-neighbor route using Haversine distance, improves it using bounded 2-opt swaps, and estimates duration at a configurable urban average speed. It is deterministic and explainable. ETA projection flags delivery-window risk, but routing does not use live traffic or global VRP optimization.
 
 ## 7. Security and privacy
 
