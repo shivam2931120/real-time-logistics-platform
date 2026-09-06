@@ -69,6 +69,10 @@ Small and mid-sized delivery teams often coordinate jobs through spreadsheets, c
 
 - Dispatchers work a pending-order queue against capacity-eligible drivers and manually assign selected pairings.
 - Exception Center supports typed categories, open/resolved filtering, resolution notes, and audit history.
+- Customer self-service allows eligible orders to be rescheduled or cancelled with an auditable timeline and notification.
+- Parcel scanning records a unique pickup, hub, and delivery event for each parcel code.
+- Support Center provides tenant-scoped tickets, priorities, threaded replies, and operational status ownership.
+- Operations can export tenant-scoped delivery and summary CSV reports, and maintain driver shifts, vehicle plates, and maintenance state.
 - Admins update roles, organization timezone, ETA speed, geofence radius, and notification enablement.
 
 ### Payments

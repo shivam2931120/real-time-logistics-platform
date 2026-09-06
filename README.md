@@ -15,6 +15,11 @@ A complete, runnable real-time last-mile logistics control tower with dispatcher
 - BullMQ/Redis notification queue with safe simulated fallback
 - Razorpay Checkout adapter, server-side verification, and signed webhook route
 - KPI analytics and seven-day trends
+- Customer self-service rescheduling/cancellation with notifications and audit history
+- Chain-of-custody parcel scanning (pickup, hub, delivery) with manual and camera-ready workflows
+- CSV exports for delivery detail and operational summary reports
+- Support and communication center with ticket priorities, status workflow, internal-safe messaging, and live updates
+- Fleet operating controls for shift windows, vehicle plates, capacity, and maintenance status
 - Responsive dispatcher control tower and mobile driver workflow
 - Role/tenant guards, validation, rate limits, structured logging, tests
 - Production relational schema and local PostgreSQL/Redis containers
@@ -73,6 +78,7 @@ The first command runs TypeScript checks, API/web tests, and production builds. 
 4. Return as Dispatcher to see the updated status and analytics.
 5. Open an unpaid delivery and complete Razorpay checkout (or demo confirmation when unconfigured).
 6. Share `/track/<tracking-code>` with a customer; no login is required.
+7. As a customer, open a delivery to reschedule/cancel when eligible, or use **Contact support**. Operations users can export CSV reports, scan parcels, and manage support tickets from the sidebar.
 
 ## Honest production boundary
 

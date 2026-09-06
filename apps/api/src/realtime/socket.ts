@@ -5,6 +5,7 @@ import {
   drivers,
   orders,
   organizationSettings,
+  supportTickets,
   users,
 } from "../domain/store.js";
 import { persistDriver, persistOrder } from "../db/persistence.js";
@@ -63,6 +64,19 @@ export function configureSockets(io: Server) {
       );
       if (!order) return ack?.({ error: "Not found" });
       socket.join(`track:${code}`);
+      ack?.({ ok: true });
+    });
+    socket.on("support:subscribe", (ticketId: string, ack?: Function) => {
+      const ticket = supportTickets.find(
+        (item) =>
+          item.id === ticketId &&
+          item.organizationId === user.organizationId &&
+          (user.role !== "customer" ||
+            item.customerId === user.id ||
+            item.createdBy === user.id),
+      );
+      if (!ticket) return ack?.({ error: "Not found" });
+      socket.join(`support:${ticket.id}`);
       ack?.({ ok: true });
     });
     let last = 0;

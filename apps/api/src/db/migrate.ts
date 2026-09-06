@@ -29,7 +29,7 @@ try {
     `CREATE UNIQUE INDEX IF NOT EXISTS users_clerk_user_id_idx ON users(clerk_user_id) WHERE clerk_user_id IS NOT NULL`,
   );
   await client.query(
-    `INSERT INTO schema_migrations(version) VALUES('001_baseline'),('002_free_operations') ON CONFLICT DO NOTHING`,
+    `INSERT INTO schema_migrations(version) VALUES('001_baseline'),('002_free_operations'),('003_self_service_reporting_support') ON CONFLICT DO NOTHING`,
   );
   console.info("RoutePulse database schema is current");
 } finally {

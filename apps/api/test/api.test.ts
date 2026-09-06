@@ -8,6 +8,9 @@ import {
   notificationRecords,
   orders,
   organizationSettings,
+  parcelScans,
+  supportMessages,
+  supportTickets,
   users,
 } from "../src/domain/store.js";
 const app = createApp();
@@ -26,6 +29,9 @@ describe("API", () => {
     deliveryExceptions.splice(0);
     notificationRecords.splice(0);
     auditRecords.splice(0);
+    parcelScans.splice(0);
+    supportMessages.splice(0);
+    supportTickets.splice(0);
     users.find((user) => user.id === "u_customer")!.role = "customer";
     Object.assign(organizationSettings, {
       name: "RoutePulse",
@@ -271,5 +277,92 @@ describe("API", () => {
           .set("authorization", `Bearer ${admin}`)
       ).body.length,
     ).toBeGreaterThan(0);
+  });
+  it("supports customer self-service reschedule and cancellation", async () => {
+    const customer = await token("customer");
+    const rescheduled = await request(app)
+      .patch("/api/customer/orders/ord_1002/reschedule")
+      .set("authorization", `Bearer ${customer}`)
+      .send({
+        deliveryWindowStart: new Date(Date.now() + 7200000).toISOString(),
+        promisedAt: new Date(Date.now() + 10800000).toISOString(),
+      });
+    expect(rescheduled.status).toBe(200);
+    expect(rescheduled.body.rescheduleCount).toBe(1);
+    const dispatcher = await token("dispatcher");
+    const created = await request(app)
+      .post("/api/orders")
+      .set("authorization", `Bearer ${dispatcher}`)
+      .send({
+        customerName: "Kabir Customer",
+        customerEmail: "customer@routepulse.demo",
+        pickup: { label: "Origin Hub", lat: 12.97, lng: 77.59 },
+        dropoff: { label: "Destination", lat: 12.95, lng: 77.61 },
+        packageWeightKg: 2,
+        priority: "standard",
+        amount: 100,
+        currency: "INR",
+        promisedAt: new Date(Date.now() + 3600000).toISOString(),
+      });
+    const cancelled = await request(app)
+      .post(`/api/customer/orders/${created.body.id}/cancel`)
+      .set("authorization", `Bearer ${customer}`)
+      .send({});
+    expect(cancelled.status).toBe(200);
+    expect(cancelled.body.status).toBe("cancelled");
+  });
+  it("records idempotent parcel scans and validates the parcel code", async () => {
+    const dispatcher = await token("dispatcher");
+    const order = (
+      await request(app)
+        .get("/api/orders")
+        .set("authorization", `Bearer ${dispatcher}`)
+    ).body.find((item: { id: string }) => item.id === "ord_1001");
+    const first = await request(app)
+      .post(`/api/orders/${order.id}/scans`)
+      .set("authorization", `Bearer ${dispatcher}`)
+      .send({ parcelCode: order.parcelCode, stage: "pickup" });
+    expect(first.status).toBe(201);
+    const duplicate = await request(app)
+      .post(`/api/orders/${order.id}/scans`)
+      .set("authorization", `Bearer ${dispatcher}`)
+      .send({ parcelCode: order.parcelCode, stage: "pickup" });
+    expect(duplicate.status).toBe(200);
+    expect(duplicate.body.id).toBe(first.body.id);
+    const mismatch = await request(app)
+      .post(`/api/orders/${order.id}/scans`)
+      .set("authorization", `Bearer ${dispatcher}`)
+      .send({ parcelCode: "WRONG-CODE", stage: "hub" });
+    expect(mismatch.status).toBe(400);
+  });
+  it("exports tenant-scoped CSV reports and provides a support thread", async () => {
+    const dispatcher = await token("dispatcher");
+    const csv = await request(app)
+      .get("/api/reports/orders.csv")
+      .set("authorization", `Bearer ${dispatcher}`);
+    expect(csv.status).toBe(200);
+    expect(csv.text).toContain("tracking_code,parcel_code");
+    const customer = await token("customer");
+    const created = await request(app)
+      .post("/api/support/tickets")
+      .set("authorization", `Bearer ${customer}`)
+      .send({
+        subject: "Where is my parcel?",
+        category: "delivery",
+        message: "Please share an update.",
+      });
+    expect(created.status).toBe(201);
+    const message = await request(app)
+      .post(`/api/support/tickets/${created.body.id}/messages`)
+      .set("authorization", `Bearer ${customer}`)
+      .send({ message: "I am available for delivery." });
+    expect(message.status).toBe(201);
+    expect(
+      (
+        await request(app)
+          .get(`/api/support/tickets/${created.body.id}/messages`)
+          .set("authorization", `Bearer ${customer}`)
+      ).body,
+    ).toHaveLength(2);
   });
 });

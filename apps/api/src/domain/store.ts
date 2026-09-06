@@ -9,6 +9,9 @@ import type {
   OrderStatus,
   OrganizationSettings,
   User,
+  ParcelScan,
+  SupportMessage,
+  SupportTicket,
 } from "@routepulse/shared";
 import { createHash, randomUUID } from "node:crypto";
 import { assertTransition } from "./stateMachine.js";
@@ -61,6 +64,10 @@ export const drivers: Driver[] = [
     capacityKg: 80,
     location: { lat: 12.9716, lng: 77.5946 },
     lastSeenAt: now(),
+    shiftStart: "08:00",
+    shiftEnd: "18:00",
+    vehiclePlate: "KA-01-RP-101",
+    maintenanceStatus: "ok",
   },
   {
     id: "d_meera",
@@ -70,6 +77,10 @@ export const drivers: Driver[] = [
     capacityKg: 120,
     location: { lat: 12.9352, lng: 77.6245 },
     lastSeenAt: now(),
+    shiftStart: "09:00",
+    shiftEnd: "19:00",
+    vehiclePlate: "KA-01-RP-202",
+    maintenanceStatus: "due",
   },
 ];
 const event = (
@@ -108,6 +119,7 @@ export const orders: Order[] = [
       event("picked_up", "Package picked up"),
       event("in_transit", "Delivery is on the way"),
     ],
+    parcelCode: "PKG-RP-DEMO01",
   },
   {
     id: "ord_1002",
@@ -127,6 +139,7 @@ export const orders: Order[] = [
     createdAt: now(),
     updatedAt: now(),
     events: [event("created", "Order created")],
+    parcelCode: "PKG-RP-DEMO02",
   },
   {
     id: "ord_0999",
@@ -151,11 +164,15 @@ export const orders: Order[] = [
       event("created", "Order created"),
       event("delivered", "Delivered successfully"),
     ],
+    parcelCode: "PKG-RP-DEMO99",
   },
 ];
 export const deliveryExceptions: DeliveryException[] = [];
 export const notificationRecords: NotificationRecord[] = [];
 export const auditRecords: AuditRecord[] = [];
+export const parcelScans: ParcelScan[] = [];
+export const supportTickets: SupportTicket[] = [];
+export const supportMessages: SupportMessage[] = [];
 export const organizationSettings: OrganizationSettings = {
   organizationId: org,
   name: "RoutePulse",
@@ -195,6 +212,8 @@ export const store = {
       id,
       organizationId: actor.organizationId,
       trackingCode: `RP-${randomUUID().slice(0, 6).toUpperCase()}`,
+      parcelCode:
+        input.parcelCode || `PKG-${randomUUID().slice(0, 8).toUpperCase()}`,
       status: "pending",
       paymentStatus: "unpaid",
       createdAt,

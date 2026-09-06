@@ -11,6 +11,9 @@ import {
   notificationRecords,
   orders,
   organizationSettings,
+  parcelScans,
+  supportMessages,
+  supportTickets,
   store,
   users,
 } from "./domain/store.js";
@@ -32,8 +35,13 @@ import {
   persistNotification,
   persistOrder,
   persistOrderAndDriver,
+  persistParcelScan,
+  persistParcelScanAndOrder,
   persistProofAndDelivery,
   persistSettings,
+  persistSupportMessage,
+  persistSupportTicket,
+  persistSupportTicketWithMessage,
   persistUserRole,
   persistenceMode,
 } from "./db/persistence.js";
@@ -46,6 +54,10 @@ import type {
   Order,
   Role,
   User,
+  ParcelScan,
+  ParcelScanStage,
+  SupportMessage,
+  SupportTicket,
 } from "@routepulse/shared";
 import { allowedWebOrigins } from "./config/origins.js";
 
@@ -69,6 +81,7 @@ const createSchema = z
       .transform((s) => s.toUpperCase()),
     deliveryWindowStart: z.iso.datetime().optional(),
     deliveryNotes: z.string().max(500).optional(),
+    parcelCode: z.string().trim().min(3).max(80).optional(),
     recipientPin: z
       .string()
       .regex(/^\d{4,6}$/)
@@ -95,6 +108,21 @@ const statusSchema = z.object({
     "cancelled",
   ]),
 });
+const parcelScanSchema = z.object({
+  parcelCode: z.string().trim().min(3).max(80),
+  stage: z.enum(["pickup", "hub", "delivery"]),
+});
+const supportTicketSchema = z.object({
+  subject: z.string().trim().min(3).max(120),
+  category: z.enum(["delivery", "payment", "address", "account", "other"]),
+  priority: z.enum(["low", "normal", "high", "urgent"]).default("normal"),
+  orderId: z.string().optional(),
+  message: z.string().trim().min(3).max(2_000),
+});
+const supportMessageSchema = z.object({
+  message: z.string().trim().min(1).max(2_000),
+  internal: z.boolean().default(false),
+});
 const driverForTenant = (driver: Driver, tenant: string) =>
   users.some(
     (user) => user.id === driver.userId && user.organizationId === tenant,
@@ -102,6 +130,16 @@ const driverForTenant = (driver: Driver, tenant: string) =>
 const canAccessOrder = (user: User, order: Order) =>
   user.role !== "customer" ||
   order.customerEmail.toLowerCase() === user.email.toLowerCase();
+const csvCell = (value: unknown) => {
+  const raw = String(value ?? "");
+  const safe = /^[=+\-@]/.test(raw) ? `'${raw}` : raw;
+  return /[",\n]/.test(safe) ? `"${safe.replaceAll('"', '""')}"` : safe;
+};
+const csvRow = (values: unknown[]) => values.map(csvCell).join(",");
+const canAccessTicket = (user: User, ticket: SupportTicket) => {
+  if (user.role !== "customer") return true;
+  return ticket.customerId === user.id || ticket.createdBy === user.id;
+};
 const restore = <T extends object>(target: T, snapshot: T) => {
   for (const key of Object.keys(target) as Array<keyof T>) delete target[key];
   Object.assign(target, structuredClone(snapshot));
@@ -404,6 +442,119 @@ export function createApp() {
     return res.json(etaFor(order));
   });
   app.patch(
+    "/api/customer/orders/:id/reschedule",
+    permit("customer"),
+    async (req, res, next) => {
+      try {
+        const body = z
+          .object({
+            deliveryWindowStart: z.iso.datetime(),
+            promisedAt: z.iso.datetime(),
+            deliveryNotes: z.string().max(500).optional(),
+          })
+          .refine((value) => value.deliveryWindowStart < value.promisedAt, {
+            message: "Delivery window must start before its end",
+          })
+          .parse(req.body);
+        const order = store.getOrder(req.params.id, req.user!.organizationId);
+        if (!order || !canAccessOrder(req.user!, order))
+          return res.status(404).json({ error: "Delivery not found" });
+        if (!["pending", "assigned", "in_transit"].includes(order.status))
+          return res
+            .status(409)
+            .json({ error: "This delivery can no longer be rescheduled" });
+        const snapshot = structuredClone(order);
+        order.deliveryWindowStart = body.deliveryWindowStart;
+        order.promisedAt = body.promisedAt;
+        if (body.deliveryNotes !== undefined)
+          order.deliveryNotes = body.deliveryNotes;
+        order.rescheduleCount = (order.rescheduleCount || 0) + 1;
+        order.updatedAt = new Date().toISOString();
+        order.events.push({
+          id: crypto.randomUUID(),
+          type: "rescheduled",
+          message: "Customer rescheduled the delivery window",
+          actorId: req.user!.id,
+          createdAt: order.updatedAt,
+        });
+        try {
+          await persistOrder(order);
+        } catch (error) {
+          restore(order, snapshot);
+          throw error;
+        }
+        await audit(
+          req.user!,
+          "customer.order_rescheduled",
+          "order",
+          order.id,
+          {
+            deliveryWindowStart: body.deliveryWindowStart,
+            promisedAt: body.promisedAt,
+          },
+        );
+        await notifySafely(order, "delivery_rescheduled");
+        req.app
+          .get("io")
+          ?.to(`tenant:${order.organizationId}`)
+          .emit("order:updated", order);
+        req.app
+          .get("io")
+          ?.to(`track:${order.trackingCode}`)
+          .emit("order:updated", order);
+        return res.json(etaFor(order));
+      } catch (e) {
+        next(e);
+      }
+    },
+  );
+  app.post(
+    "/api/customer/orders/:id/cancel",
+    permit("customer"),
+    async (req, res, next) => {
+      try {
+        const order = store.getOrder(req.params.id, req.user!.organizationId);
+        if (!order || !canAccessOrder(req.user!, order))
+          return res.status(404).json({ error: "Delivery not found" });
+        if (!["pending", "assigned"].includes(order.status))
+          return res
+            .status(409)
+            .json({
+              error: "Only pending or assigned deliveries can be cancelled",
+            });
+        const driver = drivers.find(
+          (item) => item.id === order.assignedDriverId,
+        );
+        const orderSnapshot = structuredClone(order);
+        const driverSnapshot = driver ? structuredClone(driver) : undefined;
+        store.transition(order, "cancelled", req.user!);
+        order.cancelledAt = order.updatedAt;
+        try {
+          if (driver && driverSnapshot)
+            await persistOrderAndDriver(order, driver);
+          else await persistOrder(order);
+        } catch (error) {
+          restore(order, orderSnapshot);
+          if (driver && driverSnapshot) restore(driver, driverSnapshot);
+          throw error;
+        }
+        await audit(req.user!, "customer.order_cancelled", "order", order.id);
+        await notifySafely(order, "order_cancelled");
+        req.app
+          .get("io")
+          ?.to(`tenant:${order.organizationId}`)
+          .emit("order:updated", order);
+        req.app
+          .get("io")
+          ?.to(`track:${order.trackingCode}`)
+          .emit("order:updated", order);
+        return res.json(order);
+      } catch (e) {
+        next(e);
+      }
+    },
+  );
+  app.patch(
     "/api/orders/:id/status",
     permit("admin", "dispatcher", "driver"),
     async (req, res, next) => {
@@ -645,10 +796,31 @@ export function createApp() {
           .object({
             status: z.enum(["available", "busy", "offline"]).optional(),
             capacityKg: z.number().positive().max(5000).optional(),
+            shiftStart: z
+              .string()
+              .regex(/^\d{2}:\d{2}$/)
+              .optional(),
+            shiftEnd: z
+              .string()
+              .regex(/^\d{2}:\d{2}$/)
+              .optional(),
+            vehiclePlate: z.string().trim().max(32).optional(),
+            maintenanceDueAt: z.iso.datetime().nullable().optional(),
+            maintenanceStatus: z.enum(["ok", "due", "overdue"]).optional(),
           })
-          .refine((value) => value.status || value.capacityKg, {
-            message: "No driver changes supplied",
-          })
+          .refine(
+            (value) =>
+              value.status ||
+              value.capacityKg ||
+              value.shiftStart ||
+              value.shiftEnd ||
+              value.vehiclePlate !== undefined ||
+              value.maintenanceDueAt !== undefined ||
+              value.maintenanceStatus,
+            {
+              message: "No driver changes supplied",
+            },
+          )
           .parse(req.body);
         const driver = drivers.find(
           (item) =>
@@ -661,6 +833,92 @@ export function createApp() {
         await persistDriver(driver);
         await audit(req.user!, "driver.updated", "driver", driver.id, body);
         return res.json(driver);
+      } catch (e) {
+        next(e);
+      }
+    },
+  );
+  app.get("/api/orders/:id/scans", async (req, res, next) => {
+    try {
+      const order = store.getOrder(req.params.id, req.user!.organizationId);
+      if (!order || !canAccessOrder(req.user!, order))
+        return res.status(404).json({ error: "Delivery not found" });
+      if (req.user!.role === "driver") {
+        const driver = drivers.find((item) => item.userId === req.user!.id);
+        if (order.assignedDriverId !== driver?.id)
+          return res.status(403).json({ error: "Not your assignment" });
+      }
+      return res.json(
+        parcelScans.filter(
+          (scan) =>
+            scan.orderId === order.id &&
+            scan.organizationId === req.user!.organizationId,
+        ),
+      );
+    } catch (e) {
+      next(e);
+    }
+  });
+  app.post(
+    "/api/orders/:id/scans",
+    permit("admin", "dispatcher", "driver"),
+    async (req, res, next) => {
+      try {
+        const body = parcelScanSchema.parse(req.body);
+        const order = store.getOrder(req.params.id, req.user!.organizationId);
+        if (!order) return res.status(404).json({ error: "Order not found" });
+        if (req.user!.role === "driver") {
+          const driver = drivers.find((item) => item.userId === req.user!.id);
+          if (order.assignedDriverId !== driver?.id)
+            return res.status(403).json({ error: "Not your assignment" });
+        }
+        const expected = [order.parcelCode, order.trackingCode]
+          .filter(Boolean)
+          .map((code) => code!.toLowerCase());
+        if (!expected.includes(body.parcelCode.toLowerCase()))
+          return res
+            .status(400)
+            .json({ error: "Parcel code does not match this order" });
+        const existing = parcelScans.find(
+          (scan) => scan.orderId === order.id && scan.stage === body.stage,
+        );
+        if (existing) return res.json(existing);
+        const scan: ParcelScan = {
+          id: crypto.randomUUID(),
+          organizationId: order.organizationId,
+          orderId: order.id,
+          parcelCode: order.parcelCode || body.parcelCode,
+          stage: body.stage as ParcelScanStage,
+          scannedBy: req.user!.id,
+          scannedAt: new Date().toISOString(),
+        };
+        const orderSnapshot = structuredClone(order);
+        parcelScans.unshift(scan);
+        order.updatedAt = scan.scannedAt;
+        order.events.push({
+          id: crypto.randomUUID(),
+          type: `parcel_scanned_${scan.stage}`,
+          message: `Parcel scanned at ${scan.stage}`,
+          actorId: req.user!.id,
+          createdAt: scan.scannedAt,
+        });
+        try {
+          await persistParcelScanAndOrder(scan, order);
+        } catch (error) {
+          const index = parcelScans.indexOf(scan);
+          if (index >= 0) parcelScans.splice(index, 1);
+          restore(order, orderSnapshot);
+          throw error;
+        }
+        await audit(req.user!, "parcel.scanned", "order", order.id, {
+          stage: scan.stage,
+          parcelCode: scan.parcelCode,
+        });
+        req.app
+          .get("io")
+          ?.to(`tenant:${order.organizationId}`)
+          .emit("order:updated", order);
+        return res.status(201).json(scan);
       } catch (e) {
         next(e);
       }
@@ -788,6 +1046,285 @@ export function createApp() {
       next(e);
     }
   });
+  app.get(
+    "/api/reports/orders.csv",
+    permit("admin", "dispatcher", "driver", "customer"),
+    (req, res) => {
+      let data = store.listOrders(req.user!.organizationId);
+      if (req.user!.role === "customer")
+        data = data.filter((order) => canAccessOrder(req.user!, order));
+      if (req.user!.role === "driver") {
+        const driver = drivers.find((item) => item.userId === req.user!.id);
+        data = data.filter((order) => order.assignedDriverId === driver?.id);
+      }
+      const status =
+        typeof req.query.status === "string" ? req.query.status : "";
+      const from =
+        typeof req.query.from === "string" ? Date.parse(req.query.from) : NaN;
+      const to =
+        typeof req.query.to === "string" ? Date.parse(req.query.to) : NaN;
+      if (status) data = data.filter((order) => order.status === status);
+      if (Number.isFinite(from))
+        data = data.filter((order) => Date.parse(order.createdAt) >= from);
+      if (Number.isFinite(to))
+        data = data.filter((order) => Date.parse(order.createdAt) <= to);
+      const lines = [
+        csvRow([
+          "tracking_code",
+          "parcel_code",
+          "customer",
+          "destination",
+          "status",
+          "priority",
+          "amount",
+          "payment_status",
+          "eta",
+          "created_at",
+        ]),
+        ...data.map((order) =>
+          csvRow([
+            order.trackingCode,
+            order.parcelCode,
+            order.customerName,
+            order.dropoff.label,
+            order.status,
+            order.priority,
+            order.amount,
+            order.paymentStatus,
+            etaFor(order).estimatedArrivalAt,
+            order.createdAt,
+          ]),
+        ),
+      ];
+      res
+        .type("text/csv")
+        .setHeader(
+          "Content-Disposition",
+          "attachment; filename=routepulse-orders.csv",
+        )
+        .send(lines.join("\n"));
+    },
+  );
+  app.get(
+    "/api/reports/summary.csv",
+    permit("admin", "dispatcher"),
+    (req, res) => {
+      const summary = store.summary(req.user!.organizationId);
+      const lines = [
+        csvRow(["metric", "value"]),
+        csvRow(["active_drivers", summary.activeDrivers]),
+        csvRow(["deliveries_today", summary.deliveriesToday]),
+        csvRow(["on_time_rate", `${summary.onTimeRate}%`]),
+        csvRow(["revenue", summary.revenue]),
+        csvRow(["average_delivery_minutes", summary.averageDeliveryMinutes]),
+        ...Object.entries(summary.statusCounts).map(([key, value]) =>
+          csvRow([`status_${key}`, value]),
+        ),
+      ];
+      res
+        .type("text/csv")
+        .setHeader(
+          "Content-Disposition",
+          "attachment; filename=routepulse-summary.csv",
+        )
+        .send(lines.join("\n"));
+    },
+  );
+  app.get("/api/support/tickets", (req, res) =>
+    res.json(
+      supportTickets.filter(
+        (ticket) =>
+          ticket.organizationId === req.user!.organizationId &&
+          canAccessTicket(req.user!, ticket),
+      ),
+    ),
+  );
+  app.post("/api/support/tickets", async (req, res, next) => {
+    try {
+      const body = supportTicketSchema.parse(req.body);
+      let order: Order | undefined;
+      if (body.orderId) {
+        order = store.getOrder(body.orderId, req.user!.organizationId);
+        if (
+          !order ||
+          (req.user!.role === "customer" && !canAccessOrder(req.user!, order))
+        )
+          return res.status(404).json({ error: "Order not found" });
+      }
+      const now = new Date().toISOString();
+      const ticket: SupportTicket = {
+        id: crypto.randomUUID(),
+        organizationId: req.user!.organizationId,
+        orderId: order?.id,
+        customerId: req.user!.role === "customer" ? req.user!.id : undefined,
+        subject: body.subject,
+        category: body.category,
+        priority: body.priority,
+        status: "open",
+        createdBy: req.user!.id,
+        createdAt: now,
+        updatedAt: now,
+        lastMessage: body.message,
+      };
+      const message: SupportMessage = {
+        id: crypto.randomUUID(),
+        ticketId: ticket.id,
+        organizationId: ticket.organizationId,
+        senderId: req.user!.id,
+        senderName: req.user!.name,
+        senderRole: req.user!.role,
+        message: body.message,
+        internal: false,
+        createdAt: now,
+      };
+      supportTickets.unshift(ticket);
+      supportMessages.push(message);
+      try {
+        await persistSupportTicketWithMessage(ticket, message);
+      } catch (error) {
+        supportTickets.splice(supportTickets.indexOf(ticket), 1);
+        supportMessages.splice(supportMessages.indexOf(message), 1);
+        throw error;
+      }
+      await audit(
+        req.user!,
+        "support.ticket_created",
+        "support_ticket",
+        ticket.id,
+        {
+          orderId: ticket.orderId,
+        },
+      );
+      req.app
+        .get("io")
+        ?.to(`tenant:${ticket.organizationId}`)
+        .emit("support:ticket.updated", ticket);
+      req.app
+        .get("io")
+        ?.to(`support:${ticket.id}`)
+        .emit("support:ticket.updated", ticket);
+      return res.status(201).json(ticket);
+    } catch (e) {
+      next(e);
+    }
+  });
+  app.get("/api/support/tickets/:id/messages", (req, res) => {
+    const ticket = supportTickets.find(
+      (value) =>
+        value.id === req.params.id &&
+        value.organizationId === req.user!.organizationId,
+    );
+    if (!ticket || !canAccessTicket(req.user!, ticket))
+      return res.status(404).json({ error: "Support ticket not found" });
+    return res.json(
+      supportMessages.filter(
+        (message) =>
+          message.ticketId === ticket.id &&
+          (req.user!.role !== "customer" || !message.internal),
+      ),
+    );
+  });
+  app.post("/api/support/tickets/:id/messages", async (req, res, next) => {
+    try {
+      const body = supportMessageSchema.parse(req.body);
+      const ticket = supportTickets.find(
+        (value) =>
+          value.id === req.params.id &&
+          value.organizationId === req.user!.organizationId,
+      );
+      if (!ticket || !canAccessTicket(req.user!, ticket))
+        return res.status(404).json({ error: "Support ticket not found" });
+      const now = new Date().toISOString();
+      const message: SupportMessage = {
+        id: crypto.randomUUID(),
+        ticketId: ticket.id,
+        organizationId: ticket.organizationId,
+        senderId: req.user!.id,
+        senderName: req.user!.name,
+        senderRole: req.user!.role,
+        message: body.message,
+        internal: req.user!.role === "customer" ? false : body.internal,
+        createdAt: now,
+      };
+      const ticketSnapshot = structuredClone(ticket);
+      ticket.lastMessage = message.message;
+      ticket.updatedAt = now;
+      if (ticket.status === "resolved") ticket.status = "open";
+      supportMessages.push(message);
+      try {
+        await persistSupportTicket(ticket);
+        await persistSupportMessage(message);
+      } catch (error) {
+        restore(ticket, ticketSnapshot);
+        supportMessages.splice(supportMessages.indexOf(message), 1);
+        throw error;
+      }
+      req.app
+        .get("io")
+        ?.to(`tenant:${ticket.organizationId}`)
+        .emit("support:message", message);
+      req.app
+        .get("io")
+        ?.to(`support:${ticket.id}`)
+        .emit("support:message", message);
+      return res.status(201).json(message);
+    } catch (e) {
+      next(e);
+    }
+  });
+  app.patch(
+    "/api/support/tickets/:id",
+    permit("admin", "dispatcher"),
+    async (req, res, next) => {
+      try {
+        const body = z
+          .object({
+            status: z.enum(["open", "pending", "resolved"]).optional(),
+            assignedTo: z.string().optional().nullable(),
+          })
+          .refine((value) => value.status || value.assignedTo !== undefined, {
+            message: "No ticket changes supplied",
+          })
+          .parse(req.body);
+        const ticket = supportTickets.find(
+          (value) =>
+            value.id === req.params.id &&
+            value.organizationId === req.user!.organizationId,
+        );
+        if (!ticket)
+          return res.status(404).json({ error: "Support ticket not found" });
+        const snapshot = structuredClone(ticket);
+        if (body.status) ticket.status = body.status;
+        if (body.assignedTo !== undefined)
+          ticket.assignedTo = body.assignedTo || undefined;
+        ticket.updatedAt = new Date().toISOString();
+        try {
+          await persistSupportTicket(ticket);
+        } catch (error) {
+          restore(ticket, snapshot);
+          throw error;
+        }
+        await audit(
+          req.user!,
+          "support.ticket_updated",
+          "support_ticket",
+          ticket.id,
+          body,
+        );
+        req.app
+          .get("io")
+          ?.to(`tenant:${ticket.organizationId}`)
+          .emit("support:ticket.updated", ticket);
+        req.app
+          .get("io")
+          ?.to(`support:${ticket.id}`)
+          .emit("support:ticket.updated", ticket);
+        return res.json(ticket);
+      } catch (e) {
+        next(e);
+      }
+    },
+  );
   app.get("/api/admin/users", permit("admin"), (req, res) =>
     res.json(
       users.filter((user) => user.organizationId === req.user!.organizationId),

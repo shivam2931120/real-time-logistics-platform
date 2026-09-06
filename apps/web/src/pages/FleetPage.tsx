@@ -34,6 +34,11 @@ export function FleetPage({
   const update = async (data: {
     status?: DriverStatus;
     capacityKg?: number;
+    shiftStart?: string;
+    shiftEnd?: string;
+    vehiclePlate?: string;
+    maintenanceDueAt?: string;
+    maintenanceStatus?: "ok" | "due" | "overdue";
   }) => {
     if (!selected) return;
     await api.updateDriver(selected.id, data);
@@ -138,6 +143,52 @@ export function FleetPage({
                     void update({ capacityKg: Number(event.target.value) })
                   }
                 />
+              </label>
+              <label>
+                Vehicle plate
+                <input
+                  defaultValue={selected.vehiclePlate || ""}
+                  placeholder="KA-01-RP-101"
+                  onBlur={(event) =>
+                    void update({ vehiclePlate: event.target.value.trim() })
+                  }
+                />
+              </label>
+              <label>
+                Shift start
+                <input
+                  type="time"
+                  defaultValue={selected.shiftStart || "08:00"}
+                  onBlur={(event) =>
+                    void update({ shiftStart: event.target.value })
+                  }
+                />
+              </label>
+              <label>
+                Shift end
+                <input
+                  type="time"
+                  defaultValue={selected.shiftEnd || "18:00"}
+                  onBlur={(event) =>
+                    void update({ shiftEnd: event.target.value })
+                  }
+                />
+              </label>
+              <label>
+                Maintenance
+                <select
+                  defaultValue={selected.maintenanceStatus || "ok"}
+                  onChange={(event) =>
+                    void update({
+                      maintenanceStatus: event.target.value as
+                        "ok" | "due" | "overdue",
+                    })
+                  }
+                >
+                  <option value="ok">Operational</option>
+                  <option value="due">Due soon</option>
+                  <option value="overdue">Overdue</option>
+                </select>
               </label>
             </div>
           </div>

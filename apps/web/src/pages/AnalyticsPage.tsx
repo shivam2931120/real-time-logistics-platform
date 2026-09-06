@@ -15,6 +15,7 @@ import {
   PackageCheck,
   TrendingUp,
   Truck,
+  Download,
 } from "lucide-react";
 import type { AnalyticsSummary } from "@routepulse/shared";
 
@@ -27,8 +28,10 @@ const money = (value: number) =>
 
 export function AnalyticsPage({
   analytics,
+  exportCsv,
 }: {
   analytics: AnalyticsSummary | null;
+  exportCsv: () => Promise<void>;
 }) {
   if (!analytics)
     return (
@@ -70,6 +73,15 @@ export function AnalyticsPage({
   );
   return (
     <section className="analytics-page">
+      <div className="page-toolbar">
+        <div>
+          <span className="eyebrow">Reports</span>
+          <h1>Operational analytics</h1>
+        </div>
+        <button className="button ghost" onClick={() => void exportCsv()}>
+          <Download /> Export summary
+        </button>
+      </div>
       <div className="analytics-kpis">
         {metrics.map(([label, value, caption, Icon]) => (
           <article className="panel" key={label}>

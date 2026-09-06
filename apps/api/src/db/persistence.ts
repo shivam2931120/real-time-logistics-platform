@@ -10,6 +10,9 @@ import type {
   OrganizationSettings,
   Role,
   User,
+  ParcelScan,
+  SupportMessage,
+  SupportTicket,
 } from "@routepulse/shared";
 import type { PoolClient } from "pg";
 import { pool, dbEnabled } from "./client.js";
@@ -20,6 +23,9 @@ import {
   notificationRecords,
   orders,
   organizationSettings,
+  parcelScans,
+  supportMessages,
+  supportTickets,
   store,
   users,
 } from "../domain/store.js";
@@ -62,11 +68,11 @@ export async function initializePersistence() {
     else users.push(user);
   }
   const driverRows = await pool.query(
-    `SELECT id::text,user_id::text,status,capacity_kg,current_lat,current_lng,last_seen_at FROM drivers WHERE organization_id=$1`,
+    `SELECT id::text,user_id::text,status,capacity_kg,current_lat,current_lng,last_seen_at,shift_start,shift_end,vehicle_plate,maintenance_due_at,maintenance_status FROM drivers WHERE organization_id=$1`,
     [demoOrganizationUuid],
   );
   const orderRows = await pool.query(
-    `SELECT id::text,organization_id::text,tracking_code,customer_name,customer_email,pickup,dropoff,package_weight_kg,priority,status,amount_minor,currency,payment_status,assigned_driver_id::text,delivery_window_start,delivery_notes,delivery_pin_hash,promised_at,delivered_at,created_at,updated_at FROM orders WHERE organization_id=$1 ORDER BY created_at DESC`,
+    `SELECT id::text,organization_id::text,tracking_code,customer_name,customer_email,pickup,dropoff,package_weight_kg,priority,status,amount_minor,currency,payment_status,assigned_driver_id::text,delivery_window_start,delivery_notes,delivery_pin_hash,parcel_code,reschedule_count,cancelled_at,promised_at,delivered_at,created_at,updated_at FROM orders WHERE organization_id=$1 ORDER BY created_at DESC`,
     [demoOrganizationUuid],
   );
   const eventRows = await pool.query(
@@ -93,6 +99,18 @@ export async function initializePersistence() {
     `SELECT name,timezone,settings FROM organizations WHERE id=$1`,
     [demoOrganizationUuid],
   );
+  const scanRows = await pool.query(
+    `SELECT id::text,order_id::text,parcel_code,stage,scanned_by::text,scanned_at FROM parcel_scans WHERE organization_id=$1 ORDER BY scanned_at DESC`,
+    [demoOrganizationUuid],
+  );
+  const ticketRows = await pool.query(
+    `SELECT id::text,order_id::text,customer_id::text,subject,category,priority,status,created_by::text,assigned_to::text,created_at,updated_at FROM support_tickets WHERE organization_id=$1 ORDER BY updated_at DESC`,
+    [demoOrganizationUuid],
+  );
+  const messageRows = await pool.query(
+    `SELECT id::text,ticket_id::text,sender_id::text,sender_role,message,internal,created_at FROM support_messages WHERE organization_id=$1 ORDER BY created_at`,
+    [demoOrganizationUuid],
+  );
   drivers.splice(
     0,
     drivers.length,
@@ -106,6 +124,13 @@ export async function initializePersistence() {
       capacityKg: Number(row.capacity_kg),
       location: { lat: Number(row.current_lat), lng: Number(row.current_lng) },
       lastSeenAt: iso(row.last_seen_at),
+      shiftStart: row.shift_start || undefined,
+      shiftEnd: row.shift_end || undefined,
+      vehiclePlate: row.vehicle_plate || undefined,
+      maintenanceDueAt: row.maintenance_due_at
+        ? iso(row.maintenance_due_at)
+        : undefined,
+      maintenanceStatus: row.maintenance_status || "ok",
     })) as Driver[]),
   );
   const loadedOrders = orderRows.rows.map((row) => {
@@ -134,6 +159,9 @@ export async function initializePersistence() {
         ? iso(row.delivery_window_start)
         : undefined,
       deliveryNotes: row.delivery_notes || undefined,
+      parcelCode: row.parcel_code || undefined,
+      rescheduleCount: Number(row.reschedule_count || 0),
+      cancelledAt: row.cancelled_at ? iso(row.cancelled_at) : undefined,
       promisedAt: iso(row.promised_at),
       createdAt: iso(row.created_at),
       updatedAt: iso(row.updated_at),
@@ -204,6 +232,64 @@ export async function initializePersistence() {
       createdAt: iso(row.created_at),
     })) as AuditRecord[]),
   );
+  parcelScans.splice(
+    0,
+    parcelScans.length,
+    ...(scanRows.rows.map((row) => ({
+      id: localId(row.id, []),
+      organizationId: demoOrganizationId,
+      orderId: localId(row.order_id, orders),
+      parcelCode: row.parcel_code,
+      stage: row.stage,
+      scannedBy: localId(row.scanned_by, users),
+      scannedAt: iso(row.scanned_at),
+    })) as ParcelScan[]),
+  );
+  supportTickets.splice(
+    0,
+    supportTickets.length,
+    ...(ticketRows.rows.map((row) => {
+      const latest = [...messageRows.rows]
+        .reverse()
+        .find((message) => message.ticket_id === row.id);
+      return {
+        id: localId(row.id, []),
+        organizationId: demoOrganizationId,
+        orderId: row.order_id ? localId(row.order_id, orders) : undefined,
+        customerId: row.customer_id
+          ? localId(row.customer_id, users)
+          : undefined,
+        subject: row.subject,
+        category: row.category,
+        priority: row.priority,
+        status: row.status,
+        createdBy: localId(row.created_by, users),
+        assignedTo: row.assigned_to
+          ? localId(row.assigned_to, users)
+          : undefined,
+        createdAt: iso(row.created_at),
+        updatedAt: iso(row.updated_at),
+        lastMessage: latest?.message,
+      };
+    }) as SupportTicket[]),
+  );
+  supportMessages.splice(
+    0,
+    supportMessages.length,
+    ...(messageRows.rows.map((row) => ({
+      id: localId(row.id, []),
+      ticketId: localId(row.ticket_id, supportTickets),
+      organizationId: demoOrganizationId,
+      senderId: localId(row.sender_id, users),
+      senderName: users.find(
+        (user) => user.id === localId(row.sender_id, users),
+      )?.name,
+      senderRole: row.sender_role,
+      message: row.message,
+      internal: row.internal,
+      createdAt: iso(row.created_at),
+    })) as SupportMessage[]),
+  );
   if (settingsRow.rows[0])
     Object.assign(organizationSettings, {
       organizationId: demoOrganizationId,
@@ -219,7 +305,7 @@ export async function initializePersistence() {
 async function writeOrder(order: Order, db: Pick<PoolClient, "query">) {
   const orgId = organizationUuid(order.organizationId);
   await db.query(
-    `INSERT INTO orders(id,organization_id,tracking_code,customer_name,customer_email,pickup,dropoff,package_weight_kg,priority,status,amount_minor,currency,payment_status,assigned_driver_id,delivery_window_start,delivery_notes,delivery_pin_hash,promised_at,delivered_at,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,$8,$9,$10::order_status,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21) ON CONFLICT(id) DO UPDATE SET customer_name=EXCLUDED.customer_name,customer_email=EXCLUDED.customer_email,pickup=EXCLUDED.pickup,dropoff=EXCLUDED.dropoff,package_weight_kg=EXCLUDED.package_weight_kg,priority=EXCLUDED.priority,status=EXCLUDED.status,amount_minor=EXCLUDED.amount_minor,currency=EXCLUDED.currency,payment_status=EXCLUDED.payment_status,assigned_driver_id=EXCLUDED.assigned_driver_id,delivery_window_start=EXCLUDED.delivery_window_start,delivery_notes=EXCLUDED.delivery_notes,delivery_pin_hash=COALESCE(EXCLUDED.delivery_pin_hash,orders.delivery_pin_hash),promised_at=EXCLUDED.promised_at,delivered_at=EXCLUDED.delivered_at,updated_at=EXCLUDED.updated_at`,
+    `INSERT INTO orders(id,organization_id,tracking_code,customer_name,customer_email,pickup,dropoff,package_weight_kg,priority,status,amount_minor,currency,payment_status,assigned_driver_id,delivery_window_start,delivery_notes,delivery_pin_hash,parcel_code,reschedule_count,cancelled_at,promised_at,delivered_at,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,$8,$9,$10::order_status,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24) ON CONFLICT(id) DO UPDATE SET customer_name=EXCLUDED.customer_name,customer_email=EXCLUDED.customer_email,pickup=EXCLUDED.pickup,dropoff=EXCLUDED.dropoff,package_weight_kg=EXCLUDED.package_weight_kg,priority=EXCLUDED.priority,status=EXCLUDED.status,amount_minor=EXCLUDED.amount_minor,currency=EXCLUDED.currency,payment_status=EXCLUDED.payment_status,assigned_driver_id=EXCLUDED.assigned_driver_id,delivery_window_start=EXCLUDED.delivery_window_start,delivery_notes=EXCLUDED.delivery_notes,delivery_pin_hash=COALESCE(EXCLUDED.delivery_pin_hash,orders.delivery_pin_hash),parcel_code=COALESCE(EXCLUDED.parcel_code,orders.parcel_code),reschedule_count=EXCLUDED.reschedule_count,cancelled_at=EXCLUDED.cancelled_at,promised_at=EXCLUDED.promised_at,delivered_at=EXCLUDED.delivered_at,updated_at=EXCLUDED.updated_at`,
     [
       asUuid(order.id),
       orgId,
@@ -238,6 +324,9 @@ async function writeOrder(order: Order, db: Pick<PoolClient, "query">) {
       order.deliveryWindowStart || null,
       order.deliveryNotes || null,
       store.deliveryPinHash(order.id) || null,
+      order.parcelCode || null,
+      order.rescheduleCount || 0,
+      order.cancelledAt || null,
       order.promisedAt,
       order.deliveredAt || null,
       order.createdAt,
@@ -261,12 +350,17 @@ async function writeOrder(order: Order, db: Pick<PoolClient, "query">) {
 
 async function writeDriver(driver: Driver, db: Pick<PoolClient, "query">) {
   await db.query(
-    `UPDATE drivers SET status=$1,current_lat=$2,current_lng=$3,last_seen_at=$4 WHERE id=$5`,
+    `UPDATE drivers SET status=$1,current_lat=$2,current_lng=$3,last_seen_at=$4,shift_start=$5,shift_end=$6,vehicle_plate=$7,maintenance_due_at=$8,maintenance_status=$9 WHERE id=$10`,
     [
       driver.status,
       driver.location.lat,
       driver.location.lng,
       driver.lastSeenAt,
+      driver.shiftStart || null,
+      driver.shiftEnd || null,
+      driver.vehiclePlate || null,
+      driver.maintenanceDueAt || null,
+      driver.maintenanceStatus || "ok",
       asUuid(driver.id),
     ],
   );
@@ -430,6 +524,132 @@ export async function persistUserRole(userId: string, role: Role) {
     role,
     asUuid(userId),
   ]);
+}
+export async function persistParcelScan(scan: ParcelScan) {
+  if (!dbEnabled || !pool) return;
+  await pool.query(
+    `INSERT INTO parcel_scans(id,organization_id,order_id,parcel_code,stage,scanned_by,scanned_at) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(order_id,stage) DO NOTHING`,
+    [
+      asUuid(scan.id),
+      organizationUuid(scan.organizationId),
+      asUuid(scan.orderId),
+      scan.parcelCode,
+      scan.stage,
+      asUuid(scan.scannedBy),
+      scan.scannedAt,
+    ],
+  );
+}
+export async function persistParcelScanAndOrder(
+  scan: ParcelScan,
+  order: Order,
+) {
+  if (!dbEnabled || !pool) return;
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(
+      `INSERT INTO parcel_scans(id,organization_id,order_id,parcel_code,stage,scanned_by,scanned_at) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(order_id,stage) DO NOTHING`,
+      [
+        asUuid(scan.id),
+        organizationUuid(scan.organizationId),
+        asUuid(scan.orderId),
+        scan.parcelCode,
+        scan.stage,
+        asUuid(scan.scannedBy),
+        scan.scannedAt,
+      ],
+    );
+    await writeOrder(order, client);
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+export async function persistSupportTicket(ticket: SupportTicket) {
+  if (!dbEnabled || !pool) return;
+  await pool.query(
+    `INSERT INTO support_tickets(id,organization_id,order_id,customer_id,subject,category,priority,status,created_by,assigned_to,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) ON CONFLICT(id) DO UPDATE SET subject=EXCLUDED.subject,priority=EXCLUDED.priority,status=EXCLUDED.status,assigned_to=EXCLUDED.assigned_to,updated_at=EXCLUDED.updated_at`,
+    [
+      asUuid(ticket.id),
+      organizationUuid(ticket.organizationId),
+      ticket.orderId ? asUuid(ticket.orderId) : null,
+      ticket.customerId ? asUuid(ticket.customerId) : null,
+      ticket.subject,
+      ticket.category,
+      ticket.priority,
+      ticket.status,
+      asUuid(ticket.createdBy),
+      ticket.assignedTo ? asUuid(ticket.assignedTo) : null,
+      ticket.createdAt,
+      ticket.updatedAt,
+    ],
+  );
+}
+export async function persistSupportMessage(message: SupportMessage) {
+  if (!dbEnabled || !pool) return;
+  await pool.query(
+    `INSERT INTO support_messages(id,organization_id,ticket_id,sender_id,sender_role,message,internal,created_at) VALUES($1,$2,$3,$4,$5::user_role,$6,$7,$8) ON CONFLICT(id) DO NOTHING`,
+    [
+      asUuid(message.id),
+      organizationUuid(message.organizationId),
+      asUuid(message.ticketId),
+      asUuid(message.senderId),
+      message.senderRole,
+      message.message,
+      message.internal,
+      message.createdAt,
+    ],
+  );
+}
+export async function persistSupportTicketWithMessage(
+  ticket: SupportTicket,
+  message: SupportMessage,
+) {
+  if (!dbEnabled || !pool) return;
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(
+      `INSERT INTO support_tickets(id,organization_id,order_id,customer_id,subject,category,priority,status,created_by,assigned_to,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) ON CONFLICT(id) DO UPDATE SET subject=EXCLUDED.subject,priority=EXCLUDED.priority,status=EXCLUDED.status,assigned_to=EXCLUDED.assigned_to,updated_at=EXCLUDED.updated_at`,
+      [
+        asUuid(ticket.id),
+        organizationUuid(ticket.organizationId),
+        ticket.orderId ? asUuid(ticket.orderId) : null,
+        ticket.customerId ? asUuid(ticket.customerId) : null,
+        ticket.subject,
+        ticket.category,
+        ticket.priority,
+        ticket.status,
+        asUuid(ticket.createdBy),
+        ticket.assignedTo ? asUuid(ticket.assignedTo) : null,
+        ticket.createdAt,
+        ticket.updatedAt,
+      ],
+    );
+    await client.query(
+      `INSERT INTO support_messages(id,organization_id,ticket_id,sender_id,sender_role,message,internal,created_at) VALUES($1,$2,$3,$4,$5::user_role,$6,$7,$8) ON CONFLICT(id) DO NOTHING`,
+      [
+        asUuid(message.id),
+        organizationUuid(message.organizationId),
+        asUuid(message.ticketId),
+        asUuid(message.senderId),
+        message.senderRole,
+        message.message,
+        message.internal,
+        message.createdAt,
+      ],
+    );
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 export async function persistOrderAndDriver(order: Order, driver: Driver) {
   if (!dbEnabled || !pool) return;

@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { ChevronRight, Map, Plus, Search } from "lucide-react";
+import { ChevronRight, Download, Map, Plus, Search } from "lucide-react";
 import type { Driver, Order, OrderStatus } from "@routepulse/shared";
 import { LiveMap } from "../components/LiveMap";
 
@@ -19,12 +19,14 @@ export function DeliveriesPage({
   create,
   select,
   assign,
+  exportCsv,
 }: {
   orders: Order[];
   drivers: Driver[];
   create: () => void;
   select: (order: Order) => void;
   assign: (id: string) => Promise<void>;
+  exportCsv: () => Promise<void>;
 }) {
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState<"all" | OrderStatus>("all");
@@ -68,6 +70,9 @@ export function DeliveriesPage({
           <button className="button primary" onClick={create}>
             <Plus />
             New delivery
+          </button>
+          <button className="button ghost" onClick={() => void exportCsv()}>
+            <Download /> Export CSV
           </button>
         </div>
       </div>

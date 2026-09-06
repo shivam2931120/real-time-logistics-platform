@@ -30,7 +30,7 @@ try {
     );
   for (const driver of drivers)
     await client.query(
-      `INSERT INTO drivers(id,organization_id,user_id,status,capacity_kg,current_lat,current_lng,last_seen_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT DO NOTHING`,
+      `INSERT INTO drivers(id,organization_id,user_id,status,capacity_kg,current_lat,current_lng,last_seen_at,shift_start,shift_end,vehicle_plate,maintenance_due_at,maintenance_status) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) ON CONFLICT(id) DO UPDATE SET shift_start=COALESCE(drivers.shift_start,EXCLUDED.shift_start),shift_end=COALESCE(drivers.shift_end,EXCLUDED.shift_end),vehicle_plate=COALESCE(drivers.vehicle_plate,EXCLUDED.vehicle_plate),maintenance_due_at=COALESCE(drivers.maintenance_due_at,EXCLUDED.maintenance_due_at),maintenance_status=COALESCE(drivers.maintenance_status,EXCLUDED.maintenance_status)`,
       [
         asUuid(driver.id),
         "00000000-0000-0000-0000-000000000001",
@@ -40,11 +40,16 @@ try {
         driver.location.lat,
         driver.location.lng,
         driver.lastSeenAt,
+        driver.shiftStart || null,
+        driver.shiftEnd || null,
+        driver.vehiclePlate || null,
+        driver.maintenanceDueAt || null,
+        driver.maintenanceStatus || "ok",
       ],
     );
   for (const order of orders) {
     await client.query(
-      `INSERT INTO orders(id,organization_id,tracking_code,customer_name,customer_email,pickup,dropoff,package_weight_kg,priority,status,amount_minor,currency,payment_status,assigned_driver_id,delivery_window_start,delivery_notes,delivery_pin_hash,promised_at,delivered_at,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,$8,$9,$10::order_status,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21) ON CONFLICT(id) DO UPDATE SET delivery_pin_hash=COALESCE(orders.delivery_pin_hash,EXCLUDED.delivery_pin_hash)`,
+      `INSERT INTO orders(id,organization_id,tracking_code,customer_name,customer_email,pickup,dropoff,package_weight_kg,priority,status,amount_minor,currency,payment_status,assigned_driver_id,delivery_window_start,delivery_notes,delivery_pin_hash,parcel_code,reschedule_count,cancelled_at,promised_at,delivered_at,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,$8,$9,$10::order_status,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24) ON CONFLICT(id) DO UPDATE SET delivery_pin_hash=COALESCE(orders.delivery_pin_hash,EXCLUDED.delivery_pin_hash),parcel_code=COALESCE(orders.parcel_code,EXCLUDED.parcel_code)`,
       [
         asUuid(order.id),
         "00000000-0000-0000-0000-000000000001",
@@ -63,6 +68,9 @@ try {
         order.deliveryWindowStart || null,
         order.deliveryNotes || null,
         pinHash,
+        order.parcelCode || `PKG-${order.trackingCode}`,
+        order.rescheduleCount || 0,
+        order.cancelledAt || null,
         order.promisedAt,
         order.deliveredAt || null,
         order.createdAt,

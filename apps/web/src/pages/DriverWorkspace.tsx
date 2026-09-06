@@ -9,6 +9,7 @@ import {
   PackageCheck,
   Radio,
   Route,
+  ScanLine,
 } from "lucide-react";
 import { io } from "socket.io-client";
 import type {
@@ -49,6 +50,7 @@ export function DriverWorkspace({
   const [proof, setProof] = useState(false);
   const [issue, setIssue] = useState(false);
   const [error, setError] = useState("");
+  const [scanner, setScanner] = useState(false);
   useEffect(() => {
     if (!sharing) return;
     const socket = io(api.base, { auth: { token: api.token() } });
@@ -114,6 +116,9 @@ export function DriverWorkspace({
             <MapPinned />
             Navigate
           </a>
+          <button className="share" onClick={() => setScanner(true)}>
+            <ScanLine /> Scan parcel
+          </button>
         </div>
       </section>
       <section className="driver-map">
@@ -208,7 +213,83 @@ export function DriverWorkspace({
           fail={setError}
         />
       )}
+      {scanner && (
+        <ScanModal
+          order={active}
+          close={() => setScanner(false)}
+          saved={reload}
+          fail={setError}
+        />
+      )}
     </main>
+  );
+}
+
+function ScanModal({
+  order,
+  close,
+  saved,
+  fail,
+}: {
+  order: Order;
+  close: () => void;
+  saved: () => void;
+  fail: (message: string) => void;
+}) {
+  const [stage, setStage] = useState<"pickup" | "hub" | "delivery">(
+    order.status === "assigned"
+      ? "pickup"
+      : order.status === "picked_up"
+        ? "hub"
+        : "delivery",
+  );
+  const [code, setCode] = useState(order.parcelCode || order.trackingCode);
+  const submit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    try {
+      await api.scan(order.id, { parcelCode: code, stage });
+      close();
+      await saved();
+    } catch (reason) {
+      fail(reason instanceof Error ? reason.message : "Unable to record scan");
+    }
+  };
+  return (
+    <div className="modal-backdrop">
+      <section className="modal compact-modal">
+        <span className="eyebrow">Chain of custody</span>
+        <h2>Scan parcel</h2>
+        <form className="form-grid" onSubmit={submit}>
+          <label className="span-2">
+            Parcel code
+            <input
+              value={code}
+              onChange={(event) => setCode(event.target.value)}
+              required
+            />
+          </label>
+          <label className="span-2">
+            Stage
+            <select
+              value={stage}
+              onChange={(event) => setStage(event.target.value as typeof stage)}
+            >
+              <option value="pickup">Pickup</option>
+              <option value="hub">Hub</option>
+              <option value="delivery">Delivery</option>
+            </select>
+          </label>
+          <div className="form-actions span-2">
+            <button type="button" className="button ghost" onClick={close}>
+              Cancel
+            </button>
+            <button className="button primary">
+              <ScanLine /> Record scan
+            </button>
+          </div>
+        </form>
+      </section>
+    </div>
   );
 }
 

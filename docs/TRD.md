@@ -28,7 +28,10 @@ Driver geolocation ──Socket.IO──> validated location store + tenant/trac
 | Organization      | id, name, timezone, ETA speed, geofence radius, notification setting                                                                              |
 | User              | id, organizationId, name, email, role                                                                                                             |
 | Driver            | id, userId, status, capacityKg, currentLat/Lng, lastSeenAt                                                                                        |
-| Order             | id, organizationId, trackingCode, customer, stops, delivery window/notes, PIN hash, ETA risk, proof, status/payment, assignedDriverId, timestamps |
+| Order             | id, organizationId, trackingCode, parcelCode, customer, stops, delivery window/notes, reschedule/cancel metadata, PIN hash, ETA risk, proof, status/payment, assignedDriverId, timestamps |
+| ParcelScan        | id, tenant/order, parcelCode, stage (`pickup`/`hub`/`delivery`), scanner, timestamp; unique per order/stage |
+| SupportTicket     | id, tenant/order/customer, subject, category, priority, status, assignee, timestamps |
+| SupportMessage    | id, ticket, sender/role, message, internal flag, timestamp |
 | Route             | id, driverId, date, orderedStops, distanceKm, durationMin, status                                                                                 |
 | OrderEvent        | id, orderId, type, actorId, payload, createdAt                                                                                                    |
 | Notification      | id, orderId, channel, recipient, template, status, attempts                                                                                       |
@@ -64,6 +67,14 @@ All private endpoints require `Authorization: Bearer <JWT>`. Demo login accepts 
 | GET       | `/api/admin/audit`                                  | admin                            | tenant audit history                          |
 | GET/PUT   | `/api/settings`                                     | operations/admin                 | read/update organization controls             |
 | POST      | `/api/payments/:orderId/checkout`                   | dispatcher/admin/customer target | Razorpay order or demo session                |
+| PATCH     | `/api/customer/orders/:id/reschedule`              | customer owner                   | Change eligible delivery window               |
+| POST      | `/api/customer/orders/:id/cancel`                  | customer owner                   | Cancel pending/assigned delivery              |
+| GET/POST  | `/api/orders/:id/scans`                            | tenant / ops mutation             | Read or record idempotent parcel scan         |
+| GET       | `/api/reports/orders.csv`                          | tenant roles                      | Delivery detail export                         |
+| GET       | `/api/reports/summary.csv`                         | admin/dispatcher                  | KPI/status export                              |
+| GET/POST  | `/api/support/tickets`                             | tenant roles                      | List/create support tickets                    |
+| GET/POST  | `/api/support/tickets/:id/messages`               | ticket participants               | Thread messages with customer-safe filtering  |
+| PATCH     | `/api/support/tickets/:id`                         | admin/dispatcher                  | Update status/assignment                       |
 | POST      | `/api/payments/demo/:orderId/confirm`               | demo only                        | simulate settlement                           |
 | GET       | `/api/analytics/summary`                            | dispatcher/admin                 | KPIs and trends                               |
 | GET       | `/api/track/:code`                                  | public                           | privacy-minimized tracking snapshot           |

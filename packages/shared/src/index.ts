@@ -31,6 +31,11 @@ export interface Driver {
   capacityKg: number;
   location: Coordinate;
   lastSeenAt: string;
+  shiftStart?: string;
+  shiftEnd?: string;
+  vehiclePlate?: string;
+  maintenanceDueAt?: string;
+  maintenanceStatus?: "ok" | "due" | "overdue";
 }
 export interface OrderEvent {
   id: string;
@@ -65,6 +70,9 @@ export interface Order {
   estimatedArrivalAt?: string;
   lateRisk?: boolean;
   deliveryNotes?: string;
+  parcelCode?: string;
+  rescheduleCount?: number;
+  cancelledAt?: string;
   proof?: DeliveryProof;
   createdAt: string;
   updatedAt: string;
@@ -136,6 +144,46 @@ export interface TrackingSnapshot {
   updatedAt: string;
   proof?: { recipientName: string; createdAt: string };
   events: Array<Pick<OrderEvent, "type" | "message" | "createdAt">>;
+}
+export type ParcelScanStage = "pickup" | "hub" | "delivery";
+export interface ParcelScan {
+  id: string;
+  organizationId: string;
+  orderId: string;
+  parcelCode: string;
+  stage: ParcelScanStage;
+  scannedBy: string;
+  scannedAt: string;
+}
+export type SupportTicketStatus = "open" | "pending" | "resolved";
+export type SupportTicketPriority = "low" | "normal" | "high" | "urgent";
+export type SupportTicketCategory =
+  "delivery" | "payment" | "address" | "account" | "other";
+export interface SupportTicket {
+  id: string;
+  organizationId: string;
+  orderId?: string;
+  customerId?: string;
+  subject: string;
+  category: SupportTicketCategory;
+  priority: SupportTicketPriority;
+  status: SupportTicketStatus;
+  createdBy: string;
+  assignedTo?: string;
+  createdAt: string;
+  updatedAt: string;
+  lastMessage?: string;
+}
+export interface SupportMessage {
+  id: string;
+  ticketId: string;
+  organizationId: string;
+  senderId: string;
+  senderName?: string;
+  senderRole: Role;
+  message: string;
+  internal: boolean;
+  createdAt: string;
 }
 export interface AnalyticsSummary {
   activeDrivers: number;

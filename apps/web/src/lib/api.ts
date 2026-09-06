@@ -9,7 +9,11 @@ import type {
   Order,
   OrderStatus,
   OrganizationSettings,
+  ParcelScan,
+  ParcelScanStage,
   Role,
+  SupportMessage,
+  SupportTicket,
   TrackingSnapshot,
   User,
 } from "@routepulse/shared";
@@ -138,7 +142,15 @@ export const api = {
     }),
   updateDriver: (
     id: string,
-    data: { status?: DriverStatus; capacityKg?: number },
+    data: {
+      status?: DriverStatus;
+      capacityKg?: number;
+      shiftStart?: string;
+      shiftEnd?: string;
+      vehiclePlate?: string;
+      maintenanceDueAt?: string;
+      maintenanceStatus?: "ok" | "due" | "overdue";
+    },
   ) =>
     request<Driver>(`/api/drivers/${id}`, {
       method: "PATCH",
@@ -163,4 +175,78 @@ export const api = {
       method: "POST",
       body: "{}",
     }),
+  rescheduleOrder: (
+    id: string,
+    data: {
+      deliveryWindowStart: string;
+      promisedAt: string;
+      deliveryNotes?: string;
+    },
+  ) =>
+    request<Order>(`/api/customer/orders/${id}/reschedule`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    }),
+  cancelOrder: (id: string) =>
+    request<Order>(`/api/customer/orders/${id}/cancel`, {
+      method: "POST",
+      body: "{}",
+    }),
+  scans: (id: string) => request<ParcelScan[]>(`/api/orders/${id}/scans`),
+  scan: (id: string, data: { parcelCode: string; stage: ParcelScanStage }) =>
+    request<ParcelScan>(`/api/orders/${id}/scans`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  supportTickets: () => request<SupportTicket[]>("/api/support/tickets"),
+  createSupportTicket: (data: {
+    subject: string;
+    category: SupportTicket["category"];
+    priority: SupportTicket["priority"];
+    orderId?: string;
+    message: string;
+  }) =>
+    request<SupportTicket>("/api/support/tickets", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  supportMessages: (id: string) =>
+    request<SupportMessage[]>(`/api/support/tickets/${id}/messages`),
+  sendSupportMessage: (id: string, message: string, internal = false) =>
+    request<SupportMessage>(`/api/support/tickets/${id}/messages`, {
+      method: "POST",
+      body: JSON.stringify({ message, internal }),
+    }),
+  updateSupportTicket: (
+    id: string,
+    data: { status?: SupportTicket["status"]; assignedTo?: string | null },
+  ) =>
+    request<SupportTicket>(`/api/support/tickets/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    }),
+  downloadReport: async (path: string, filename: string) => {
+    const response = await fetch(`${base}${path}`, {
+      headers: token ? { authorization: `Bearer ${token}` } : undefined,
+    });
+    if (!response.ok) {
+      let message = "Unable to download report";
+      try {
+        const body = (await response.json()) as { error?: string };
+        message = body.error || message;
+      } catch {
+        // The server may return a non-JSON error body.
+      }
+      throw new Error(message);
+    }
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+  },
 };

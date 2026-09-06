@@ -24,6 +24,8 @@ import {
   Plus,
   Radio,
   Route,
+  ScanLine,
+  LifeBuoy,
   Settings,
   Truck,
   Users,
@@ -43,6 +45,8 @@ import { ExceptionsPage } from "./pages/ExceptionsPage";
 import { NotificationsPage } from "./pages/NotificationsPage";
 import { AdminPage } from "./pages/AdminPage";
 import { DriverWorkspace } from "./pages/DriverWorkspace";
+import { ParcelScannerPage } from "./pages/ParcelScannerPage";
+import { SupportPage } from "./pages/SupportPage";
 
 const next: Partial<Record<OrderStatus, OrderStatus>> = {
   assigned: "picked_up",
@@ -64,7 +68,9 @@ type View =
   | "exceptions"
   | "notifications"
   | "analytics"
-  | "admin";
+  | "admin"
+  | "scanner"
+  | "support";
 const viewFromPath = (): View => {
   const value = window.location.pathname.replace(/^\//, "").split("/")[0];
   return [
@@ -77,6 +83,8 @@ const viewFromPath = (): View => {
     "notifications",
     "analytics",
     "admin",
+    "scanner",
+    "support",
   ].includes(value)
     ? (value as View)
     : "overview";
@@ -317,6 +325,8 @@ export default function App() {
     ["exceptions", "Exceptions", AlertTriangle],
     ["notifications", "Notifications", Bell],
     ["analytics", "Analytics", BarChart3],
+    ["scanner", "Parcel scanner", ScanLine],
+    ["support", "Support center", LifeBuoy],
     ...(user.role === "admin"
       ? [["admin", "Administration", Settings] as const]
       : []),
@@ -625,6 +635,12 @@ export default function App() {
                 await api.assign(id);
                 await load();
               }}
+              exportCsv={() =>
+                api.downloadReport(
+                  "/api/reports/orders.csv",
+                  "routepulse-orders.csv",
+                )
+              }
             />
           )}
           {view === "fleet" && (
@@ -635,7 +651,21 @@ export default function App() {
           )}{" "}
           {view === "exceptions" && <ExceptionsPage orders={orders} />}{" "}
           {view === "notifications" && <NotificationsPage />}{" "}
-          {view === "analytics" && <AnalyticsPage analytics={analytics} />}{" "}
+          {view === "analytics" && (
+            <AnalyticsPage
+              analytics={analytics}
+              exportCsv={() =>
+                api.downloadReport(
+                  "/api/reports/summary.csv",
+                  "routepulse-summary.csv",
+                )
+              }
+            />
+          )}{" "}
+          {view === "scanner" && (
+            <ParcelScannerPage orders={orders} role={user.role} />
+          )}{" "}
+          {view === "support" && <SupportPage orders={orders} />}{" "}
           {view === "admin" && user.role === "admin" && <AdminPage />}
         </main>
       </div>
@@ -733,11 +763,15 @@ function OrderDrawer({
   order,
   close,
   reload,
+  customerActions = false,
 }: {
   order: Order;
   close: () => void;
   reload: () => void;
+  customerActions?: boolean;
 }) {
+  const [selfService, setSelfService] = useState(false);
+  const [selfServiceError, setSelfServiceError] = useState("");
   return (
     <div className="drawer-backdrop" onClick={close}>
       <aside className="drawer" onClick={(e) => e.stopPropagation()}>
@@ -813,6 +847,91 @@ function OrderDrawer({
         >
           Copy public tracking link
         </button>
+        {customerActions &&
+          ["pending", "assigned", "in_transit"].includes(order.status) && (
+            <div className="self-service-actions">
+              <button
+                className="button ghost"
+                onClick={() => setSelfService((value) => !value)}
+              >
+                Reschedule
+              </button>
+              {["pending", "assigned"].includes(order.status) && (
+                <button
+                  className="button danger"
+                  onClick={async () => {
+                    if (!window.confirm("Cancel this delivery?")) return;
+                    try {
+                      await api.cancelOrder(order.id);
+                      reload();
+                    } catch (reason) {
+                      setSelfServiceError(
+                        reason instanceof Error
+                          ? reason.message
+                          : "Unable to cancel delivery",
+                      );
+                    }
+                  }}
+                >
+                  Cancel delivery
+                </button>
+              )}
+            </div>
+          )}
+        {customerActions && selfService && (
+          <form
+            className="self-service-form"
+            onSubmit={async (event) => {
+              event.preventDefault();
+              const form = new FormData(event.currentTarget);
+              try {
+                await api.rescheduleOrder(order.id, {
+                  deliveryWindowStart: new Date(
+                    String(form.get("start")),
+                  ).toISOString(),
+                  promisedAt: new Date(String(form.get("end"))).toISOString(),
+                  deliveryNotes: String(form.get("notes") || "") || undefined,
+                });
+                reload();
+              } catch (reason) {
+                setSelfServiceError(
+                  reason instanceof Error
+                    ? reason.message
+                    : "Unable to reschedule delivery",
+                );
+              }
+            }}
+          >
+            <label>
+              Window start
+              <input
+                type="datetime-local"
+                name="start"
+                required
+                defaultValue={order.deliveryWindowStart?.slice(0, 16)}
+              />
+            </label>
+            <label>
+              Window end
+              <input
+                type="datetime-local"
+                name="end"
+                required
+                defaultValue={order.promisedAt.slice(0, 16)}
+              />
+            </label>
+            <label>
+              Instructions
+              <textarea
+                name="notes"
+                rows={2}
+                defaultValue={order.deliveryNotes || ""}
+              />
+            </label>
+            <button className="button primary">Save new window</button>
+            {selfServiceError && <p className="error">{selfServiceError}</p>}
+          </form>
+        )}
         {order.paymentStatus !== "paid" && (
           <button
             className="button primary full"
@@ -884,6 +1003,17 @@ function CustomerView({
   logout: () => void;
 }) {
   const [selected, setSelected] = useState<Order | null>(null);
+  const [support, setSupport] = useState(false);
+  if (support)
+    return (
+      <main className="driver-app">
+        <SupportPage
+          orders={orders}
+          customerOnly
+          onBack={() => setSupport(false)}
+        />
+      </main>
+    );
   return (
     <main className="driver-app">
       <header>
@@ -905,6 +1035,9 @@ function CustomerView({
           securely.
         </p>
       </section>
+      <button className="button ghost" onClick={() => setSupport(true)}>
+        <LifeBuoy /> Contact support
+      </button>
       {orders.length ? (
         <section className="panel table-panel">
           <div className="delivery-list">
@@ -937,6 +1070,7 @@ function CustomerView({
         <OrderDrawer
           order={selected}
           close={() => setSelected(null)}
+          customerActions
           reload={async () => {
             await reload();
             setSelected(null);
