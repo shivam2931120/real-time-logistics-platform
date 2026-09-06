@@ -41,6 +41,9 @@ export function RoutePlannerPage({
     (total, order) => total + order.packageWeightKg,
     0,
   );
+  const capacity = driver?.capacityKg || 0;
+  const overCapacity = Boolean(driver && demand > capacity);
+  const utilization = capacity ? Math.round((demand / capacity) * 100) : 0;
   const optimize = async () => {
     if (!driverId || !selected.length) return;
     setBusy(true);
@@ -86,11 +89,17 @@ export function RoutePlannerPage({
           <div>
             <span>Selected load</span>
             <strong>
-              {demand.toFixed(1)} / {driver?.capacityKg || 0} kg
+              {demand.toFixed(1)} / {capacity} kg
             </strong>
           </div>
-          <progress max={driver?.capacityKg || 1} value={demand} />
+          <progress max={capacity || 1} value={demand} />
         </div>
+        {overCapacity && (
+          <p className="inline-notice warning" role="alert">
+            This route is {demand - capacity} kg over vehicle capacity. Remove a
+            stop before optimizing.
+          </p>
+        )}
         <div className="stop-picker">
           <div className="stop-picker-head">
             <strong>Delivery stops</strong>
@@ -151,7 +160,7 @@ export function RoutePlannerPage({
         )}
         <button
           className="button primary full"
-          disabled={busy || !driverId || !selected.length}
+          disabled={busy || !driverId || !selected.length || overCapacity}
           onClick={() => void optimize()}
         >
           <Sparkles />
@@ -186,9 +195,7 @@ export function RoutePlannerPage({
             <div>
               <Truck />
               <span>
-                <strong>
-                  {Math.round((demand / (driver?.capacityKg || 1)) * 100)}%
-                </strong>
+                <strong>{utilization}%</strong>
                 <small>Vehicle utilization</small>
               </span>
             </div>

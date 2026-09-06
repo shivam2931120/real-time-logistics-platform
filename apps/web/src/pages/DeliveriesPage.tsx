@@ -97,7 +97,7 @@ export function DeliveriesPage({
             drivers={drivers}
             orders={filtered}
             selectedOrderId={selectedId}
-            onOrderSelect={(order) => setSelectedId(order.id)}
+            onOrderSelect={choose}
           />
         </div>
       )}
