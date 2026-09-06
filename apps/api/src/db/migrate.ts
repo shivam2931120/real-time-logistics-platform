@@ -10,11 +10,12 @@ try {
   await client.query('CREATE EXTENSION IF NOT EXISTS citext');
   await client.query('CREATE EXTENSION IF NOT EXISTS pgcrypto');
   await client.query(`CREATE TABLE IF NOT EXISTS schema_migrations (version text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())`);
-  const existing = await client.query<{ exists: boolean }>(`SELECT to_regclass('public.organizations') IS NOT NULL AS exists`);
-  if (!existing.rows[0]?.exists) await client.query(sql);
+  // Apply the baseline on every run. The schema statements are idempotent, so
+  // this also repairs a database that was only partially initialized.
+  await client.query(sql);
   await client.query(`ALTER TABLE organizations ADD COLUMN IF NOT EXISTS clerk_organization_id text`);
   await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS clerk_user_id text`);
   await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS users_clerk_user_id_idx ON users(clerk_user_id) WHERE clerk_user_id IS NOT NULL`);
   await client.query(`INSERT INTO schema_migrations(version) VALUES('001_baseline') ON CONFLICT DO NOTHING`);
-  console.info(existing.rows[0]?.exists ? 'RoutePulse database schema is current' : 'RoutePulse database schema applied');
+  console.info('RoutePulse database schema is current');
 } finally { client.release(); await pool.end(); }
