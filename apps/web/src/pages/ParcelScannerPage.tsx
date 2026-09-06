@@ -58,6 +58,32 @@ export function ParcelScannerPage({
           return stream.getTracks().forEach((track) => track.stop());
         streamRef.current = stream;
         if (videoRef.current) videoRef.current.srcObject = stream;
+        const BarcodeDetectorCtor = (
+          window as unknown as {
+            BarcodeDetector?: new () => {
+              detect: (
+                video: HTMLVideoElement,
+              ) => Promise<Array<{ rawValue?: string }>>;
+            };
+          }
+        ).BarcodeDetector;
+        if (!BarcodeDetectorCtor || !videoRef.current) return;
+        const detector = new BarcodeDetectorCtor();
+        let active = true;
+        const detect = async () => {
+          if (!active || !videoRef.current) return;
+          try {
+            const [result] = await detector.detect(videoRef.current);
+            if (result?.rawValue) setCode(result.rawValue);
+          } catch {
+            // A frame can be undecodable while the camera is starting.
+          }
+          if (active) window.requestAnimationFrame(() => void detect());
+        };
+        void detect();
+        return () => {
+          active = false;
+        };
       })
       .catch(() =>
         setError(
