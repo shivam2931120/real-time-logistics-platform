@@ -5,6 +5,7 @@ A complete, runnable real-time last-mile logistics control tower with dispatcher
 ## Included
 
 - Live MapLibre fleet map and driver browser geolocation
+- Road-aware OSRM route geometry with route/driver/stop visibility controls and map selection focus
 - Public no-login tracking with live position, ETA, delivery window, and timeline
 - Manual dispatch, capacity-aware assignment, late-risk ETAs, and geofence arrivals
 - Exception workflows and a mobile driver workspace with accept/reject/navigation actions
