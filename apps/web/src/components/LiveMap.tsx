@@ -24,7 +24,7 @@ type RouteResponse = {
   routes?: Array<{ geometry?: { coordinates?: number[][] } }>;
 };
 
-const FALLBACK_STYLE = "https://demotiles.maplibre.org/style.json";
+const FALLBACK_STYLE = "https://tiles.openfreemap.org/styles/liberty";
 const activeOrder = (order: Order) =>
   !["delivered", "cancelled", "failed"].includes(order.status);
 const asLine = (points: Point[]) =>
