@@ -115,55 +115,109 @@ export async function searchPlaces(query: string): Promise<PlaceResult[]> {
   const key = query.trim().toLowerCase();
   const existing = cached(searchCache, key);
   if (existing) return existing;
-  const params = new URLSearchParams({
-    q: query.trim(),
-    format: "jsonv2",
-    addressdetails: "1",
-    limit: "6",
-  });
-  let response: Response;
+  const normalizedQuery = query.trim();
+  let results: PlaceResult[] | undefined;
   try {
-    response = await fetchWithTimeout(
-      `https://nominatim.openstreetmap.org/search?${params}`,
+    const params = new URLSearchParams({
+      q: normalizedQuery,
+      format: "jsonv2",
+      addressdetails: "1",
+      limit: "6",
+    });
+    const response = await fetchWithTimeout(
+      `https://nominatim.openstreetmap.org/search?${params.toString()}`,
       {
         accept: "application/json",
         "accept-language": "en",
         "user-agent": "RoutePulse/1.0 (logistics map search)",
       },
     );
+    if (response.ok) {
+      const body = (await response.json()) as Array<{
+        place_id?: number | string;
+        display_name?: string;
+        lat?: string;
+        lon?: string;
+        type?: string;
+        category?: string;
+      }>;
+      if (Array.isArray(body)) {
+        results = body.flatMap((item) => {
+          const lat = Number(item.lat);
+          const lng = Number(item.lon);
+          if (!Number.isFinite(lat) || !Number.isFinite(lng)) return [];
+          return [
+            {
+              id: `nominatim:${String(item.place_id ?? `${lat},${lng}`)}`,
+              label: item.display_name || normalizedQuery,
+              category: item.type || item.category || "place",
+              lat,
+              lng,
+            },
+          ];
+        });
+      }
+    }
   } catch {
-    throw Object.assign(new Error("Address search service unavailable"), {
-      status: 502,
-    });
+    // Continue to the second free provider when Nominatim is unavailable.
   }
-  if (!response.ok)
+  if (results === undefined) {
+    try {
+      const params = new URLSearchParams({ q: normalizedQuery, limit: "6" });
+      const response = await fetchWithTimeout(
+        `https://photon.komoot.io/api/?${params.toString()}`,
+        { accept: "application/geo+json, application/json" },
+      );
+      if (response.ok) {
+        const body = (await response.json()) as {
+          features?: Array<{
+            geometry?: { coordinates?: unknown };
+            properties?: Record<string, unknown>;
+          }>;
+        };
+        results = (body.features ?? []).flatMap((feature, index) => {
+          const coordinates = feature.geometry?.coordinates;
+          if (
+            !Array.isArray(coordinates) ||
+            coordinates.length < 2 ||
+            typeof coordinates[0] !== "number" ||
+            typeof coordinates[1] !== "number"
+          )
+            return [];
+          const properties = feature.properties ?? {};
+          const labelParts = [
+            properties.name,
+            properties.city,
+            properties.state,
+            properties.country,
+          ].filter(
+            (value, position, values): value is string =>
+              typeof value === "string" &&
+              value.trim().length > 0 &&
+              values.indexOf(value) === position,
+          );
+          return [
+            {
+              id: `photon:${String(properties.osm_id ?? index)}`,
+              label: labelParts.join(", ") || normalizedQuery,
+              category:
+                typeof properties.type === "string"
+                  ? properties.type
+                  : "place",
+              lat: coordinates[1],
+              lng: coordinates[0],
+            },
+          ];
+        });
+      }
+    } catch {
+      // The common error below gives callers a provider-neutral message.
+    }
+  }
+  if (results === undefined)
     throw Object.assign(new Error("Address search service unavailable"), {
       status: 502,
     });
-  const body = (await response.json()) as Array<{
-    place_id?: number | string;
-    display_name?: string;
-    lat?: string;
-    lon?: string;
-    type?: string;
-    category?: string;
-  }>;
-  const results = Array.isArray(body)
-    ? body.flatMap((item) => {
-        const lat = Number(item.lat);
-        const lng = Number(item.lon);
-        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return [];
-        return [
-          {
-            id: String(item.place_id ?? `${lat},${lng}`),
-            label: item.display_name || query.trim(),
-            category: item.type || item.category || "place",
-            lat,
-            lng,
-          },
-        ];
-      })
-    : [];
   return remember(searchCache, key, results, SEARCH_TTL_MS);
 }
 

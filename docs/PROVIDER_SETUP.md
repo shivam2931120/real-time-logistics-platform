@@ -86,7 +86,7 @@ Use the Gmail/Workspace address as `GOOGLE_SMTP_USER`. Enable 2-Step Verificatio
 
 ## Free maps
 
-The application uses MapLibre with the key-free OpenFreeMap Liberty style. Road geometry and address search are validated and proxied through the API, which keeps short-lived in-process OSRM/Nominatim caches and returns only normalized geometry/place results. These public upstreams have fair-use/rate limits and must not be treated as an unlimited production SLA; use managed providers and a distributed cache for sustained production traffic.
+The application uses MapLibre with the key-free OpenFreeMap Liberty style. Road geometry and address search are validated and proxied through the API, which keeps short-lived in-process OSRM/Nominatim caches, falls back to Photon when Nominatim is unavailable, and returns only normalized geometry/place results. These public upstreams have fair-use/rate limits and must not be treated as an unlimited production SLA; use managed providers and a distributed cache for sustained production traffic.
 
 ## Free monitoring
 

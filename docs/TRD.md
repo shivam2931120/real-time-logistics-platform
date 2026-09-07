@@ -50,7 +50,7 @@ All private endpoints require `Authorization: Bearer <JWT>`. Demo login accepts 
 | --------- | --------------------------------------------------- | -------------------------------- | --------------------------------------------- |
 | POST      | `/api/auth/demo`                                    | public                           | issue demo JWT                                |
 | POST      | `/api/maps/route`                                   | public/rate-limited              | validated cached OSRM route geometry          |
-| GET       | `/api/maps/search`                                  | public/rate-limited              | validated cached OpenStreetMap place search   |
+| GET       | `/api/maps/search`                                  | public/rate-limited              | cached Nominatim search with Photon fallback  |
 | GET       | `/api/me`                                           | all                              | current identity                              |
 | GET/POST  | `/api/orders`                                       | ops / dispatcher+                | list or create orders                         |
 | GET       | `/api/orders/:id`                                   | authorized                       | order and timeline                            |

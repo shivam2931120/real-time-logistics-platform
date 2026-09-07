@@ -73,12 +73,49 @@ describe("map gateway", () => {
     );
     await expect(searchPlaces("Indiranagar Bengaluru")).resolves.toEqual([
       {
-        id: "42",
+        id: "nominatim:42",
         label: "Indiranagar, Bengaluru, India",
         category: "suburb",
         lat: 12.9784,
         lng: 77.6408,
       },
     ]);
+  });
+
+  it("falls back to Photon when Nominatim is unavailable", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response("unavailable", { status: 503 }))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            features: [
+              {
+                geometry: { coordinates: [77.6408, 12.9784] },
+                properties: {
+                  osm_id: 88,
+                  name: "Indiranagar",
+                  city: "Bengaluru",
+                  state: "Karnataka",
+                  country: "India",
+                  type: "district",
+                },
+              },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(searchPlaces("Indiranagar Bengaluru")).resolves.toEqual([
+      {
+        id: "photon:88",
+        label: "Indiranagar, Bengaluru, Karnataka, India",
+        category: "district",
+        lat: 12.9784,
+        lng: 77.6408,
+      },
+    ]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });
