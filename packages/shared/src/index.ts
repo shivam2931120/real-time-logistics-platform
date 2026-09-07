@@ -186,11 +186,48 @@ export interface SupportMessage {
   createdAt: string;
 }
 export interface AnalyticsSummary {
+  windowDays: number;
+  totalOrders: number;
   activeDrivers: number;
   deliveriesToday: number;
   onTimeRate: number;
+  completionRate: number;
+  paymentCollectionRate: number;
+  atRiskDeliveries: number;
+  openExceptions: number;
   revenue: number;
+  revenuePerDelivery: number;
   averageDeliveryMinutes: number;
+  totalRouteKm: number;
+  averageRouteKm: number;
   statusCounts: Record<OrderStatus, number>;
   trend: Array<{ date: string; deliveries: number; revenue: number }>;
+  geofence: {
+    arrivals: number;
+    departures: number;
+    currentlyInside: number;
+    averageDwellMinutes: number;
+  };
+  priorityPerformance: Array<{
+    priority: Order["priority"];
+    orders: number;
+    delivered: number;
+    onTimeRate: number;
+    averageDeliveryMinutes: number;
+  }>;
+  driverPerformance: Array<{
+    driverId: string;
+    driverName: string;
+    assigned: number;
+    completed: number;
+    onTimeRate: number;
+    activeLoadKg: number;
+  }>;
+  zonePerformance: Array<{
+    zone: string;
+    orders: number;
+    delivered: number;
+    onTimeRate: number;
+    revenue: number;
+  }>;
 }

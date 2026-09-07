@@ -59,6 +59,33 @@ describe("API", () => {
   it("rejects private access without a session", async () => {
     expect((await request(app).get("/api/orders")).status).toBe(401);
   });
+  it("validates public map operations without contacting a provider", async () => {
+    const route = await request(app)
+      .post("/api/maps/route")
+      .send({ points: [{ lat: 12.97, lng: 77.59 }] });
+    const search = await request(app).get("/api/maps/search?query=ab");
+    expect(route.status).toBe(400);
+    expect(search.status).toBe(400);
+  });
+  it("returns expanded analytics for a validated reporting window", async () => {
+    const auth = await token("dispatcher");
+    const response = await request(app)
+      .get("/api/analytics/summary?days=30")
+      .set("authorization", `Bearer ${auth}`);
+    expect(response.status).toBe(200);
+    expect(response.body.windowDays).toBe(30);
+    expect(response.body).toEqual(
+      expect.objectContaining({
+        completionRate: expect.any(Number),
+        paymentCollectionRate: expect.any(Number),
+        totalRouteKm: expect.any(Number),
+        geofence: expect.any(Object),
+        driverPerformance: expect.any(Array),
+        priorityPerformance: expect.any(Array),
+        zonePerformance: expect.any(Array),
+      }),
+    );
+  });
   it("creates, assigns, and prevents an invalid transition", async () => {
     const auth = await token("dispatcher");
     const created = await request(app)

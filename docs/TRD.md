@@ -23,22 +23,22 @@ Driver geolocation ──Socket.IO──> validated location store + tenant/trac
 
 ## 3. Domain model
 
-| Entity            | Important fields                                                                                                                                  |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Organization      | id, name, timezone, ETA speed, geofence radius, notification setting                                                                              |
-| User              | id, organizationId, name, email, role                                                                                                             |
-| Driver            | id, userId, status, capacityKg, currentLat/Lng, lastSeenAt                                                                                        |
+| Entity            | Important fields                                                                                                                                                                          |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Organization      | id, name, timezone, ETA speed, geofence radius, notification setting                                                                                                                      |
+| User              | id, organizationId, name, email, role                                                                                                                                                     |
+| Driver            | id, userId, status, capacityKg, currentLat/Lng, lastSeenAt                                                                                                                                |
 | Order             | id, organizationId, trackingCode, parcelCode, customer, stops, delivery window/notes, reschedule/cancel metadata, PIN hash, ETA risk, proof, status/payment, assignedDriverId, timestamps |
-| ParcelScan        | id, tenant/order, parcelCode, stage (`pickup`/`hub`/`delivery`), scanner, timestamp; unique per order/stage |
-| SupportTicket     | id, tenant/order/customer, subject, category, priority, status, assignee, timestamps |
-| SupportMessage    | id, ticket, sender/role, message, internal flag, timestamp |
-| Route             | id, driverId, date, orderedStops, distanceKm, durationMin, status                                                                                 |
-| OrderEvent        | id, orderId, type, actorId, payload, createdAt                                                                                                    |
-| Notification      | id, orderId, channel, recipient, template, status, attempts                                                                                       |
-| Payment           | id, orderId, provider, providerRef, amount, currency, status                                                                                      |
-| AuditEvent        | tenant, actor, action, resourceType/id, metadata, createdAt                                                                                       |
-| DeliveryException | orderId, type, description, status, resolution, actor/timestamps                                                                                  |
-| ProofOfDelivery   | orderId, driverId, recipientName, signatureData, createdAt                                                                                        |
+| ParcelScan        | id, tenant/order, parcelCode, stage (`pickup`/`hub`/`delivery`), scanner, timestamp; unique per order/stage                                                                               |
+| SupportTicket     | id, tenant/order/customer, subject, category, priority, status, assignee, timestamps                                                                                                      |
+| SupportMessage    | id, ticket, sender/role, message, internal flag, timestamp                                                                                                                                |
+| Route             | id, driverId, date, orderedStops, distanceKm, durationMin, status                                                                                                                         |
+| OrderEvent        | id, orderId, type, actorId, payload, createdAt                                                                                                                                            |
+| Notification      | id, orderId, channel, recipient, template, status, attempts                                                                                                                               |
+| Payment           | id, orderId, provider, providerRef, amount, currency, status                                                                                                                              |
+| AuditEvent        | tenant, actor, action, resourceType/id, metadata, createdAt                                                                                                                               |
+| DeliveryException | orderId, type, description, status, resolution, actor/timestamps                                                                                                                          |
+| ProofOfDelivery   | orderId, driverId, recipientName, signatureData, createdAt                                                                                                                                |
 
 Production indexes: `(organization_id,status,created_at)`, `(assigned_driver_id,status)`, unique `tracking_code`, unique `(provider,provider_ref)`, and `(order_id,created_at)` for events.
 
@@ -49,6 +49,8 @@ All private endpoints require `Authorization: Bearer <JWT>`. Demo login accepts 
 | Method    | Route                                               | Roles                            | Purpose                                       |
 | --------- | --------------------------------------------------- | -------------------------------- | --------------------------------------------- |
 | POST      | `/api/auth/demo`                                    | public                           | issue demo JWT                                |
+| POST      | `/api/maps/route`                                   | public/rate-limited              | validated cached OSRM route geometry          |
+| GET       | `/api/maps/search`                                  | public/rate-limited              | validated cached OpenStreetMap place search   |
 | GET       | `/api/me`                                           | all                              | current identity                              |
 | GET/POST  | `/api/orders`                                       | ops / dispatcher+                | list or create orders                         |
 | GET       | `/api/orders/:id`                                   | authorized                       | order and timeline                            |
@@ -67,16 +69,16 @@ All private endpoints require `Authorization: Bearer <JWT>`. Demo login accepts 
 | GET       | `/api/admin/audit`                                  | admin                            | tenant audit history                          |
 | GET/PUT   | `/api/settings`                                     | operations/admin                 | read/update organization controls             |
 | POST      | `/api/payments/:orderId/checkout`                   | dispatcher/admin/customer target | Razorpay order or demo session                |
-| PATCH     | `/api/customer/orders/:id/reschedule`              | customer owner                   | Change eligible delivery window               |
-| POST      | `/api/customer/orders/:id/cancel`                  | customer owner                   | Cancel pending/assigned delivery              |
-| GET/POST  | `/api/orders/:id/scans`                            | tenant / ops mutation             | Read or record idempotent parcel scan         |
-| GET       | `/api/reports/orders.csv`                          | tenant roles                      | Delivery detail export                         |
-| GET       | `/api/reports/summary.csv`                         | admin/dispatcher                  | KPI/status export                              |
-| GET/POST  | `/api/support/tickets`                             | tenant roles                      | List/create support tickets                    |
-| GET/POST  | `/api/support/tickets/:id/messages`               | ticket participants               | Thread messages with customer-safe filtering  |
-| PATCH     | `/api/support/tickets/:id`                         | admin/dispatcher                  | Update status/assignment                       |
+| PATCH     | `/api/customer/orders/:id/reschedule`               | customer owner                   | Change eligible delivery window               |
+| POST      | `/api/customer/orders/:id/cancel`                   | customer owner                   | Cancel pending/assigned delivery              |
+| GET/POST  | `/api/orders/:id/scans`                             | tenant / ops mutation            | Read or record idempotent parcel scan         |
+| GET       | `/api/reports/orders.csv`                           | tenant roles                     | Delivery detail export                        |
+| GET       | `/api/reports/summary.csv?days=7                    | 30                               | 90`                                           | admin/dispatcher | expanded operational analytics export         |
+| GET/POST  | `/api/support/tickets`                              | tenant roles                     | List/create support tickets                   |
+| GET/POST  | `/api/support/tickets/:id/messages`                 | ticket participants              | Thread messages with customer-safe filtering  |
+| PATCH     | `/api/support/tickets/:id`                          | admin/dispatcher                 | Update status/assignment                      |
 | POST      | `/api/payments/demo/:orderId/confirm`               | demo only                        | simulate settlement                           |
-| GET       | `/api/analytics/summary`                            | dispatcher/admin                 | KPIs and trends                               |
+| GET       | `/api/analytics/summary?days=7                      | 30                               | 90`                                           | dispatcher/admin | SLA, route, geofence, driver and zone metrics |
 | GET       | `/api/track/:code`                                  | public                           | privacy-minimized tracking snapshot           |
 | GET       | `/health`                                           | public                           | liveness and adapter modes                    |
 

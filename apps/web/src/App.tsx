@@ -4,6 +4,7 @@ import type {
   Driver,
   Order,
   OrderStatus,
+  OrganizationSettings,
   Role,
   User,
 } from "@routepulse/shared";
@@ -204,6 +205,8 @@ export default function App() {
     [orders, setOrders] = useState<Order[]>([]),
     [drivers, setDrivers] = useState<Driver[]>([]),
     [analytics, setAnalytics] = useState<AnalyticsSummary | null>(null),
+    [organizationSettings, setOrganizationSettings] =
+      useState<OrganizationSettings | null>(null),
     [loading, setLoading] = useState(true),
     [create, setCreate] = useState(false),
     [selected, setSelected] = useState<Order | null>(null),
@@ -217,9 +220,14 @@ export default function App() {
       const os = await api.orders();
       setOrders(os);
       if (me.role === "admin" || me.role === "dispatcher") {
-        const [ds, a] = await Promise.all([api.drivers(), api.analytics()]);
+        const [ds, a, settings] = await Promise.all([
+          api.drivers(),
+          api.analytics(),
+          api.settings(),
+        ]);
         setDrivers(ds);
         setAnalytics(a);
+        setOrganizationSettings(settings);
       }
     } catch {
       api.logout();
@@ -502,7 +510,13 @@ export default function App() {
                       Live
                     </span>
                   </div>
-                  <LiveMap drivers={drivers} orders={orders} />
+                  <LiveMap
+                    drivers={drivers}
+                    orders={orders}
+                    geofenceRadiusMeters={
+                      organizationSettings?.geofenceRadiusMeters
+                    }
+                  />
                   <div className="map-legend">
                     <span>
                       <i className="available" />
@@ -619,6 +633,7 @@ export default function App() {
             <DispatchPage
               orders={orders}
               drivers={drivers}
+              geofenceRadiusMeters={organizationSettings?.geofenceRadiusMeters}
               assign={async (orderId, driverId) => {
                 await api.assign(orderId, driverId);
                 await load();
@@ -629,6 +644,7 @@ export default function App() {
             <DeliveriesPage
               orders={orders}
               drivers={drivers}
+              geofenceRadiusMeters={organizationSettings?.geofenceRadiusMeters}
               create={() => setCreate(true)}
               select={setSelected}
               assign={async (id) => {
@@ -644,19 +660,28 @@ export default function App() {
             />
           )}
           {view === "fleet" && (
-            <FleetPage drivers={drivers} orders={orders} reload={load} />
+            <FleetPage
+              drivers={drivers}
+              orders={orders}
+              reload={load}
+              geofenceRadiusMeters={organizationSettings?.geofenceRadiusMeters}
+            />
           )}{" "}
           {view === "routes" && (
-            <RoutePlannerPage drivers={drivers} orders={orders} />
+            <RoutePlannerPage
+              drivers={drivers}
+              orders={orders}
+              geofenceRadiusMeters={organizationSettings?.geofenceRadiusMeters}
+            />
           )}{" "}
           {view === "exceptions" && <ExceptionsPage orders={orders} />}{" "}
           {view === "notifications" && <NotificationsPage />}{" "}
           {view === "analytics" && (
             <AnalyticsPage
               analytics={analytics}
-              exportCsv={() =>
+              exportCsv={(days) =>
                 api.downloadReport(
-                  "/api/reports/summary.csv",
+                  `/api/reports/summary.csv?days=${days}`,
                   "routepulse-summary.csv",
                 )
               }

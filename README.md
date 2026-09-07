@@ -4,8 +4,8 @@ A complete, runnable real-time last-mile logistics control tower with dispatcher
 
 ## Included
 
-- Live MapLibre fleet map and driver browser geolocation
-- Road-aware OSRM route geometry with route/driver/stop visibility controls and map selection focus
+- Live MapLibre fleet map with address search, marker clustering, configurable geofence overlays, stale-GPS intelligence, session trails, operational telemetry, and driver browser geolocation
+- Road-aware OSRM route geometry through a validated server-side cache, with route/driver/stop/geofence/trail controls and map selection focus
 - Public no-login tracking with live position, ETA, delivery window, and timeline
 - Manual dispatch, capacity-aware assignment, late-risk ETAs, and geofence arrivals
 - Exception workflows and a mobile driver workspace with accept/reject/navigation actions
@@ -15,7 +15,7 @@ A complete, runnable real-time last-mile logistics control tower with dispatcher
 - Order state machine, nearest-driver assignment, Haversine + 2-opt route optimization
 - BullMQ/Redis notification queue with safe simulated fallback
 - Razorpay Checkout adapter, server-side verification, and signed webhook route
-- KPI analytics and seven-day trends
+- Selectable 7/30/90-day analytics with SLA, completion, payment, route-distance, geofence dwell, priority, driver and zone performance
 - Customer self-service rescheduling/cancellation with notifications and audit history
 - Chain-of-custody parcel scanning (pickup, hub, delivery) with manual and camera-ready workflows
 - CSV exports for delivery detail and operational summary reports

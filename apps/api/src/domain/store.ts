@@ -18,6 +18,26 @@ import { assertTransition } from "./stateMachine.js";
 
 const now = () => new Date().toISOString();
 const org = "org_demo";
+const distanceKm = (order: Order) => {
+  const radius = 6371;
+  const radians = Math.PI / 180;
+  const latitude = (order.dropoff.lat - order.pickup.lat) * radians;
+  const longitude = (order.dropoff.lng - order.pickup.lng) * radians;
+  const value =
+    Math.sin(latitude / 2) ** 2 +
+    Math.cos(order.pickup.lat * radians) *
+      Math.cos(order.dropoff.lat * radians) *
+      Math.sin(longitude / 2) ** 2;
+  return 2 * radius * Math.asin(Math.sqrt(value));
+};
+const deliveryMinutes = (order: Order) =>
+  order.deliveredAt
+    ? (new Date(order.deliveredAt).getTime() -
+        new Date(order.createdAt).getTime()) /
+      60_000
+    : 0;
+const zoneName = (order: Order) =>
+  order.dropoff.label.split(",")[0]?.trim() || "Other";
 export const users: User[] = [
   {
     id: "u_admin",
@@ -268,15 +288,84 @@ export const store = {
     );
     return order;
   },
-  summary(tenant: string): AnalyticsSummary {
-    const tenantOrders = orders.filter((o) => o.organizationId === tenant);
+  summary(tenant: string, windowDays = 7): AnalyticsSummary {
+    const safeWindowDays = Math.min(90, Math.max(7, Math.round(windowDays)));
+    const cutoff = Date.now() - safeWindowDays * 24 * 60 * 60 * 1000;
+    const tenantOrders = orders.filter(
+      (order) =>
+        order.organizationId === tenant &&
+        new Date(order.createdAt).getTime() >= cutoff,
+    );
+    const tenantDriverIds = new Set(
+      drivers
+        .filter((driver) =>
+          users.some(
+            (user) =>
+              user.id === driver.userId && user.organizationId === tenant,
+          ),
+        )
+        .map((driver) => driver.id),
+    );
+    const tenantDrivers = drivers.filter((driver) =>
+      tenantDriverIds.has(driver.id),
+    );
     const delivered = tenantOrders.filter((o) => o.status === "delivered");
     const onTime = delivered.filter(
       (o) => o.deliveredAt! <= o.promisedAt,
     ).length;
-    const trend = Array.from({ length: 7 }, (_, i) => {
+    const paid = tenantOrders.filter((order) => order.paymentStatus === "paid");
+    const revenue = paid.reduce((total, order) => total + order.amount, 0);
+    const routeKm = tenantOrders.reduce(
+      (total, order) => total + distanceKm(order),
+      0,
+    );
+    const activeOrders = tenantOrders.filter((order) =>
+      ["assigned", "picked_up", "in_transit"].includes(order.status),
+    );
+    const geofenceEvents = tenantOrders.flatMap((order) => order.events);
+    const arrivals = geofenceEvents.filter((event) =>
+      event.type.endsWith("_arrival"),
+    );
+    const departures = geofenceEvents.filter((event) =>
+      event.type.endsWith("_departure"),
+    );
+    const geofenceSessions = tenantOrders.flatMap((order) =>
+      (["pickup", "dropoff"] as const).map((kind) => {
+        const relevant = order.events
+          .filter((event) =>
+            [
+              `geofence_${kind}_arrival`,
+              `geofence_${kind}_departure`,
+            ].includes(event.type),
+          )
+          .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+        const dwellMinutes: number[] = [];
+        let arrivedAt: number | undefined;
+        for (const event of relevant) {
+          if (event.type.endsWith("_arrival")) {
+            arrivedAt = new Date(event.createdAt).getTime();
+          } else if (arrivedAt !== undefined) {
+            dwellMinutes.push(
+              Math.max(
+                0,
+                (new Date(event.createdAt).getTime() - arrivedAt) / 60_000,
+              ),
+            );
+            arrivedAt = undefined;
+          }
+        }
+        return { dwellMinutes, inside: arrivedAt !== undefined };
+      }),
+    );
+    const dwellSamples = geofenceSessions.flatMap(
+      (session) => session.dwellMinutes,
+    );
+    const currentlyInside = geofenceSessions.filter(
+      (session) => session.inside,
+    ).length;
+    const trend = Array.from({ length: safeWindowDays }, (_, i) => {
       const d = new Date();
-      d.setDate(d.getDate() - 6 + i);
+      d.setDate(d.getDate() - safeWindowDays + 1 + i);
       const key = d.toISOString().slice(0, 10);
       const day = tenantOrders.filter((o) => o.deliveredAt?.startsWith(key));
       return {
@@ -287,28 +376,120 @@ export const store = {
           .reduce((n, o) => n + o.amount, 0),
       };
     });
+    const priorityPerformance = (
+      ["standard", "express", "urgent"] as const
+    ).map((priority) => {
+      const group = tenantOrders.filter((order) => order.priority === priority);
+      const completed = group.filter((order) => order.status === "delivered");
+      const punctual = completed.filter(
+        (order) => order.deliveredAt! <= order.promisedAt,
+      );
+      return {
+        priority,
+        orders: group.length,
+        delivered: completed.length,
+        onTimeRate: completed.length
+          ? Math.round((punctual.length / completed.length) * 100)
+          : 100,
+        averageDeliveryMinutes: completed.length
+          ? Math.round(
+              completed.reduce(
+                (total, order) => total + deliveryMinutes(order),
+                0,
+              ) / completed.length,
+            )
+          : 0,
+      };
+    });
+    const driverPerformance = tenantDrivers.map((driver) => {
+      const assigned = tenantOrders.filter(
+        (order) => order.assignedDriverId === driver.id,
+      );
+      const completed = assigned.filter(
+        (order) => order.status === "delivered",
+      );
+      const punctual = completed.filter(
+        (order) => order.deliveredAt! <= order.promisedAt,
+      );
+      return {
+        driverId: driver.id,
+        driverName: driver.name,
+        assigned: assigned.length,
+        completed: completed.length,
+        onTimeRate: completed.length
+          ? Math.round((punctual.length / completed.length) * 100)
+          : 100,
+        activeLoadKg: +assigned
+          .filter((order) =>
+            ["assigned", "picked_up", "in_transit"].includes(order.status),
+          )
+          .reduce((total, order) => total + order.packageWeightKg, 0)
+          .toFixed(1),
+      };
+    });
+    const zones = [...new Set(tenantOrders.map(zoneName))];
+    const zonePerformance = zones
+      .map((zone) => {
+        const group = tenantOrders.filter((order) => zoneName(order) === zone);
+        const completed = group.filter((order) => order.status === "delivered");
+        const punctual = completed.filter(
+          (order) => order.deliveredAt! <= order.promisedAt,
+        );
+        return {
+          zone,
+          orders: group.length,
+          delivered: completed.length,
+          onTimeRate: completed.length
+            ? Math.round((punctual.length / completed.length) * 100)
+            : 100,
+          revenue: group
+            .filter((order) => order.paymentStatus === "paid")
+            .reduce((total, order) => total + order.amount, 0),
+        };
+      })
+      .sort((a, b) => b.orders - a.orders)
+      .slice(0, 8);
     return {
-      activeDrivers: drivers.filter((d) => d.status !== "offline").length,
+      windowDays: safeWindowDays,
+      totalOrders: tenantOrders.length,
+      activeDrivers: tenantDrivers.filter((d) => d.status !== "offline").length,
       deliveriesToday: delivered.filter(
         (o) => o.deliveredAt?.slice(0, 10) === now().slice(0, 10),
       ).length,
       onTimeRate: delivered.length
         ? Math.round((onTime / delivered.length) * 100)
         : 100,
-      revenue: tenantOrders
-        .filter((o) => o.paymentStatus === "paid")
-        .reduce((n, o) => n + o.amount, 0),
+      completionRate: tenantOrders.length
+        ? Math.round((delivered.length / tenantOrders.length) * 100)
+        : 0,
+      paymentCollectionRate: tenantOrders.length
+        ? Math.round((paid.length / tenantOrders.length) * 100)
+        : 0,
+      atRiskDeliveries: activeOrders.filter(
+        (order) =>
+          order.lateRisk ||
+          (order.estimatedArrivalAt
+            ? order.estimatedArrivalAt > order.promisedAt
+            : new Date(order.promisedAt).getTime() < Date.now()),
+      ).length,
+      openExceptions: deliveryExceptions.filter(
+        (item) => item.organizationId === tenant && item.status === "open",
+      ).length,
+      revenue,
+      revenuePerDelivery: delivered.length
+        ? Math.round(revenue / delivered.length)
+        : 0,
       averageDeliveryMinutes: delivered.length
         ? Math.round(
             delivered.reduce(
-              (n, o) =>
-                n +
-                (new Date(o.deliveredAt!).getTime() -
-                  new Date(o.createdAt).getTime()) /
-                  60000,
+              (total, order) => total + deliveryMinutes(order),
               0,
             ) / delivered.length,
           )
+        : 0,
+      totalRouteKm: +routeKm.toFixed(1),
+      averageRouteKm: tenantOrders.length
+        ? +(routeKm / tenantOrders.length).toFixed(1)
         : 0,
       statusCounts: Object.fromEntries(
         [
@@ -322,6 +503,20 @@ export const store = {
         ].map((s) => [s, tenantOrders.filter((o) => o.status === s).length]),
       ) as Record<OrderStatus, number>,
       trend,
+      geofence: {
+        arrivals: arrivals.length,
+        departures: departures.length,
+        currentlyInside,
+        averageDwellMinutes: dwellSamples.length
+          ? +(
+              dwellSamples.reduce((total, minutes) => total + minutes, 0) /
+              dwellSamples.length
+            ).toFixed(1)
+          : 0,
+      },
+      priorityPerformance,
+      driverPerformance,
+      zonePerformance,
     };
   },
 };

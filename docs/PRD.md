@@ -57,6 +57,8 @@ Small and mid-sized delivery teams often coordinate jobs through spreadsheets, c
 - Server validates coordinate range, assignment, timestamp, and per-client update rate.
 - WebSocket rooms isolate tenant operations and individual tracking codes.
 - Dispatcher map updates vehicle markers and order status without refresh.
+- Dense delivery views cluster map markers; configurable pickup/drop-off geofences, stale GPS, current geofence occupancy, and in-session driver trails provide operational context.
+- Address search and road routing use rate-limited, validated server gateways with short-lived caches and straight-line fallbacks.
 - A privacy-minimized public tracking URL exposes live location, ETA, window, timeline, and proof-completion summary without an account.
 
 ### Driver workflow and proof
@@ -89,8 +91,9 @@ Small and mid-sized delivery teams often coordinate jobs through spreadsheets, c
 
 ### Analytics
 
-- KPI cards: active drivers, deliveries today, on-time percentage, revenue, average delivery minutes.
-- Delivery status distribution and seven-day volume/revenue trend.
+- Selectable 7/30/90-day reporting windows with completion, on-time, payment collection, at-risk, exception, revenue and route-distance KPIs.
+- Delivery status and volume trends, geofence arrival/departure/dwell metrics, priority SLA performance, driver scorecards, and destination-zone performance.
+- Summary CSV export follows the selected reporting window and includes operational and driver metrics.
 - Tenant-scoped aggregation only.
 
 ## 6. Core user journeys

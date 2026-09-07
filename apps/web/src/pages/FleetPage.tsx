@@ -15,10 +15,12 @@ export function FleetPage({
   drivers,
   orders,
   reload,
+  geofenceRadiusMeters,
 }: {
   drivers: Driver[];
   orders: Order[];
   reload: () => void;
+  geofenceRadiusMeters?: number;
 }) {
   const [filter, setFilter] = useState<"all" | DriverStatus>("all");
   const [selectedId, setSelectedId] = useState(drivers[0]?.id ?? "");
@@ -61,6 +63,7 @@ export function FleetPage({
           drivers={visible}
           orders={orders}
           selectedDriverId={selectedId}
+          geofenceRadiusMeters={geofenceRadiusMeters}
           onDriverSelect={(driver) => setSelectedId(driver.id)}
         />
       </div>

@@ -34,9 +34,11 @@ const distanceKm = (
 export function RoutePlannerPage({
   drivers,
   orders,
+  geofenceRadiusMeters,
 }: {
   drivers: Driver[];
   orders: Order[];
+  geofenceRadiusMeters?: number;
 }) {
   const candidates = useMemo(
     () =>
@@ -271,6 +273,7 @@ export function RoutePlannerPage({
           drivers={driver ? [driver] : []}
           orders={selectedOrders}
           selectedDriverId={driverId}
+          geofenceRadiusMeters={geofenceRadiusMeters}
           routeCoordinates={
             plan && driver ? [driver.location, ...planStops] : undefined
           }

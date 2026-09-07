@@ -49,6 +49,18 @@ export type RoutePlan = {
   durationMinutes: number;
   algorithm: string;
 };
+export type MapRoute = {
+  geometry: Array<[number, number]>;
+  distanceMeters: number;
+  durationSeconds: number;
+};
+export type MapSearchResult = {
+  id: string;
+  label: string;
+  category: string;
+  lat: number;
+  lng: number;
+};
 export const api = {
   base,
   token: () => token,
@@ -64,7 +76,21 @@ export const api = {
   me: () => request<User>("/api/me"),
   orders: () => request<Order[]>("/api/orders"),
   drivers: () => request<Driver[]>("/api/drivers"),
-  analytics: () => request<AnalyticsSummary>("/api/analytics/summary"),
+  analytics: (days = 7) =>
+    request<AnalyticsSummary>(`/api/analytics/summary?days=${days}`),
+  mapRoute: (
+    points: Array<{ lat: number; lng: number }>,
+    signal?: AbortSignal,
+  ) =>
+    request<MapRoute>("/api/maps/route", {
+      method: "POST",
+      body: JSON.stringify({ points }),
+      signal,
+    }),
+  mapSearch: (query: string) =>
+    request<MapSearchResult[]>(
+      `/api/maps/search?query=${encodeURIComponent(query)}`,
+    ),
   assign: (id: string, driverId?: string) =>
     request<Order>(`/api/orders/${id}/assign`, {
       method: "POST",

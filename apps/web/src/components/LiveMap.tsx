@@ -1,14 +1,21 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  AlertTriangle,
   Crosshair,
+  History,
   Layers3,
   LocateFixed,
+  MapPin,
   Maximize2,
   Route,
+  Search,
+  ShieldCheck,
+  X,
 } from "lucide-react";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import type { Driver, Order } from "@routepulse/shared";
+import { api, type MapSearchResult } from "../lib/api";
 
 type Point = { lat: number; lng: number };
 type Props = {
@@ -17,38 +24,50 @@ type Props = {
   selectedOrderId?: string;
   selectedDriverId?: string;
   routeCoordinates?: Point[];
+  geofenceRadiusMeters?: number;
   onOrderSelect?: (order: Order) => void;
   onDriverSelect?: (driver: Driver) => void;
 };
-type RouteResponse = {
-  routes?: Array<{ geometry?: { coordinates?: number[][] } }>;
-};
-
 const FALLBACK_STYLE = "https://tiles.openfreemap.org/styles/liberty";
+const STALE_AFTER_MS = 2 * 60_000;
 const activeOrder = (order: Order) =>
   !["delivered", "cancelled", "failed"].includes(order.status);
 const asLine = (points: Point[]) =>
   points.map((point) => [point.lng, point.lat] as [number, number]);
+const isStale = (driver: Driver, timestamp = Date.now()) =>
+  driver.status !== "offline" &&
+  timestamp - new Date(driver.lastSeenAt).getTime() > STALE_AFTER_MS;
+const distanceMeters = (a: Point, b: Point) => {
+  const radius = 6_371_000;
+  const radians = Math.PI / 180;
+  const latitude = (b.lat - a.lat) * radians;
+  const longitude = (b.lng - a.lng) * radians;
+  const value =
+    Math.sin(latitude / 2) ** 2 +
+    Math.cos(a.lat * radians) *
+      Math.cos(b.lat * radians) *
+      Math.sin(longitude / 2) ** 2;
+  return 2 * radius * Math.asin(Math.sqrt(value));
+};
+const circleRing = (center: Point, radiusMeters: number) => {
+  const ring: Array<[number, number]> = [];
+  const latitudeRadius = radiusMeters / 111_320;
+  const longitudeRadius =
+    radiusMeters /
+    Math.max(1, 111_320 * Math.cos((center.lat * Math.PI) / 180));
+  for (let index = 0; index <= 48; index += 1) {
+    const angle = (index / 48) * Math.PI * 2;
+    ring.push([
+      center.lng + Math.cos(angle) * longitudeRadius,
+      center.lat + Math.sin(angle) * latitudeRadius,
+    ]);
+  }
+  return ring;
+};
 
 async function roadRoute(points: Point[], signal: AbortSignal) {
   if (points.length < 2) return undefined;
-  const coordinates = points
-    .map((point) => `${point.lng},${point.lat}`)
-    .join(";");
-  const response = await fetch(
-    `https://router.project-osrm.org/route/v1/driving/${coordinates}?overview=full&geometries=geojson&steps=false`,
-    { signal },
-  );
-  if (!response.ok) throw new Error("Routing service unavailable");
-  const body = (await response.json()) as RouteResponse;
-  const geometry = body.routes?.[0]?.geometry?.coordinates;
-  return geometry?.filter(
-    (point): point is [number, number] =>
-      Array.isArray(point) &&
-      point.length >= 2 &&
-      typeof point[0] === "number" &&
-      typeof point[1] === "number",
-  );
+  return (await api.mapRoute(points, signal)).geometry;
 }
 
 export function LiveMap({
@@ -57,6 +76,7 @@ export function LiveMap({
   selectedOrderId,
   selectedDriverId,
   routeCoordinates,
+  geofenceRadiusMeters = 150,
   onOrderSelect,
   onDriverSelect,
 }: Props) {
@@ -64,6 +84,11 @@ export function LiveMap({
   const mapRef = useRef<maplibregl.Map | null>(null);
   const markersRef = useRef<maplibregl.Marker[]>([]);
   const userMarkerRef = useRef<maplibregl.Marker | null>(null);
+  const searchMarkerRef = useRef<maplibregl.Marker | null>(null);
+  const trailsRef = useRef<Record<string, Array<[number, number]>>>({});
+  const lastTrailPointRef = useRef<Record<string, string>>({});
+  const ordersRef = useRef(orders);
+  const onOrderSelectRef = useRef(onOrderSelect);
   const fittedRef = useRef(false);
   const [loaded, setLoaded] = useState(false);
   const [mapError, setMapError] = useState("");
@@ -73,9 +98,16 @@ export function LiveMap({
   const [showDrivers, setShowDrivers] = useState(true);
   const [showStops, setShowStops] = useState(true);
   const [showRoutes, setShowRoutes] = useState(true);
+  const [showGeofences, setShowGeofences] = useState(true);
+  const [showTrails, setShowTrails] = useState(true);
   const [roadRoutes, setRoadRoutes] = useState<
     Record<string, [number, number][]>
   >({});
+  const [clock, setClock] = useState(Date.now());
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<MapSearchResult[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState("");
   const activeOrders = useMemo(() => orders.filter(activeOrder), [orders]);
   const routeKey = useMemo(
     () =>
@@ -87,6 +119,16 @@ export function LiveMap({
         .join("|"),
     [activeOrders],
   );
+
+  useEffect(() => {
+    ordersRef.current = orders;
+    onOrderSelectRef.current = onOrderSelect;
+  }, [onOrderSelect, orders]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setClock(Date.now()), 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -166,6 +208,54 @@ export function LiveMap({
       "bottom-right",
     );
     map.on("load", () => {
+      map.addSource("geofences", {
+        type: "geojson",
+        data: { type: "FeatureCollection", features: [] },
+      });
+      map.addLayer({
+        id: "geofence-fill",
+        type: "fill",
+        source: "geofences",
+        paint: {
+          "fill-color": [
+            "case",
+            ["boolean", ["get", "inside"], false],
+            "#22c55e",
+            ["==", ["get", "kind"], "pickup"],
+            "#a78bfa",
+            "#06b6d4",
+          ],
+          "fill-opacity": [
+            "case",
+            ["boolean", ["get", "inside"], false],
+            0.2,
+            0.09,
+          ],
+        },
+      });
+      map.addLayer({
+        id: "geofence-line",
+        type: "line",
+        source: "geofences",
+        paint: {
+          "line-color": [
+            "case",
+            ["boolean", ["get", "inside"], false],
+            "#22c55e",
+            ["==", ["get", "kind"], "pickup"],
+            "#a78bfa",
+            "#06b6d4",
+          ],
+          "line-width": [
+            "case",
+            ["boolean", ["get", "selected"], false],
+            3,
+            1.5,
+          ],
+          "line-opacity": 0.82,
+          "line-dasharray": [3, 2],
+        },
+      });
       map.addSource("delivery-routes", {
         type: "geojson",
         data: { type: "FeatureCollection", features: [] },
@@ -191,6 +281,109 @@ export function LiveMap({
           "line-dasharray": [2, 1.5],
         },
       });
+      map.addSource("driver-trails", {
+        type: "geojson",
+        data: { type: "FeatureCollection", features: [] },
+      });
+      map.addLayer({
+        id: "driver-trails",
+        type: "line",
+        source: "driver-trails",
+        layout: { "line-cap": "round", "line-join": "round" },
+        paint: {
+          "line-color": "#a78bfa",
+          "line-width": 2,
+          "line-opacity": 0.72,
+          "line-dasharray": [1, 1.5],
+        },
+      });
+      map.addSource("delivery-clusters", {
+        type: "geojson",
+        data: { type: "FeatureCollection", features: [] },
+        cluster: true,
+        clusterMaxZoom: 14,
+        clusterRadius: 50,
+      });
+      map.addLayer({
+        id: "delivery-cluster-circles",
+        type: "circle",
+        source: "delivery-clusters",
+        filter: ["has", "point_count"],
+        paint: {
+          "circle-color": "#06b6d4",
+          "circle-radius": ["step", ["get", "point_count"], 17, 20, 23, 50, 29],
+          "circle-stroke-width": 2,
+          "circle-stroke-color": "#020304",
+        },
+      });
+      map.addLayer({
+        id: "delivery-cluster-count",
+        type: "symbol",
+        source: "delivery-clusters",
+        filter: ["has", "point_count"],
+        layout: {
+          "text-field": ["get", "point_count_abbreviated"],
+          "text-size": 11,
+        },
+        paint: { "text-color": "#020304" },
+      });
+      map.addLayer({
+        id: "delivery-cluster-point",
+        type: "circle",
+        source: "delivery-clusters",
+        filter: ["!", ["has", "point_count"]],
+        paint: {
+          "circle-color": [
+            "case",
+            ["boolean", ["get", "lateRisk"], false],
+            "#f59e0b",
+            ["==", ["get", "priority"], "urgent"],
+            "#ef4444",
+            "#2563eb",
+          ],
+          "circle-radius": 7,
+          "circle-stroke-width": 2,
+          "circle-stroke-color": "#ffffff",
+        },
+      });
+      map.on("click", "delivery-cluster-circles", async (event) => {
+        const feature = map.queryRenderedFeatures(event.point, {
+          layers: ["delivery-cluster-circles"],
+        })[0];
+        const clusterId = Number(feature?.properties?.cluster_id);
+        if (!feature || !Number.isFinite(clusterId)) return;
+        const source = map.getSource(
+          "delivery-clusters",
+        ) as maplibregl.GeoJSONSource;
+        const zoom = await source.getClusterExpansionZoom(clusterId);
+        if (feature.geometry.type !== "Point") return;
+        map.easeTo({
+          center: feature.geometry.coordinates as [number, number],
+          zoom,
+        });
+      });
+      map.on("click", "delivery-cluster-point", (event) => {
+        const id = String(event.features?.[0]?.properties?.id || "");
+        const order = ordersRef.current.find((item) => item.id === id);
+        if (!order) return;
+        if (onOrderSelectRef.current) onOrderSelectRef.current(order);
+        else
+          new maplibregl.Popup({ offset: 12 })
+            .setLngLat([order.dropoff.lng, order.dropoff.lat])
+            .setText(`${order.trackingCode} · ${order.dropoff.label}`)
+            .addTo(map);
+      });
+      for (const layer of [
+        "delivery-cluster-circles",
+        "delivery-cluster-point",
+      ]) {
+        map.on("mouseenter", layer, () => {
+          map.getCanvas().style.cursor = "pointer";
+        });
+        map.on("mouseleave", layer, () => {
+          map.getCanvas().style.cursor = "";
+        });
+      }
       setLoaded(true);
     });
     map.on("error", () => {
@@ -205,6 +398,7 @@ export function LiveMap({
       observer.disconnect();
       markersRef.current.forEach((marker) => marker.remove());
       userMarkerRef.current?.remove();
+      searchMarkerRef.current?.remove();
       map.remove();
       mapRef.current = null;
     };
@@ -215,12 +409,25 @@ export function LiveMap({
     if (!map || !loaded) return;
     markersRef.current.forEach((marker) => marker.remove());
     markersRef.current = [];
+    for (const driver of drivers) {
+      const point: [number, number] = [
+        driver.location.lng,
+        driver.location.lat,
+      ];
+      const pointKey = `${point[0]},${point[1]}`;
+      if (lastTrailPointRef.current[driver.id] !== pointKey) {
+        const trail = trailsRef.current[driver.id] || [];
+        trailsRef.current[driver.id] = [...trail, point].slice(-40);
+        lastTrailPointRef.current[driver.id] = pointKey;
+      }
+    }
     if (showDrivers) {
       for (const driver of drivers) {
+        const stale = isStale(driver, clock);
         const element = document.createElement("button");
         element.type = "button";
-        element.className = `map-marker ${driver.status}${selectedDriverId === driver.id ? " selected" : ""}`;
-        element.title = `${driver.name} · ${driver.status}`;
+        element.className = `map-marker ${driver.status}${stale ? " stale" : ""}${selectedDriverId === driver.id ? " selected" : ""}`;
+        element.title = `${driver.name} · ${stale ? "location stale" : driver.status}`;
         element.setAttribute("aria-label", element.title);
         element.addEventListener("click", (event) => {
           event.stopPropagation();
@@ -230,9 +437,11 @@ export function LiveMap({
         const title = document.createElement("strong");
         title.textContent = driver.name;
         const detail = document.createElement("span");
-        detail.textContent = `${driver.status} · ${driver.capacityKg} kg · ${driver.vehiclePlate || "No plate"}`;
+        detail.textContent = `${stale ? "STALE GPS" : driver.status} · ${driver.capacityKg} kg · ${driver.vehiclePlate || "No plate"}`;
+        const seen = document.createElement("small");
+        seen.textContent = `Last seen ${new Date(driver.lastSeenAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
         popup.className = "map-popup";
-        popup.append(title, detail);
+        popup.append(title, detail, seen);
         markersRef.current.push(
           new maplibregl.Marker({ element })
             .setLngLat([driver.location.lng, driver.location.lat])
@@ -241,6 +450,55 @@ export function LiveMap({
         );
       }
     }
+    const driverById = new Map(drivers.map((driver) => [driver.id, driver]));
+    const geofenceFeatures = activeOrders.flatMap((order) =>
+      (["pickup", "dropoff"] as const).map((kind) => {
+        const center = order[kind];
+        const driver = order.assignedDriverId
+          ? driverById.get(order.assignedDriverId)
+          : undefined;
+        return {
+          type: "Feature" as const,
+          properties: {
+            id: `${order.id}:${kind}`,
+            orderId: order.id,
+            kind,
+            inside: Boolean(
+              driver &&
+              distanceMeters(driver.location, center) <= geofenceRadiusMeters,
+            ),
+            selected: order.id === selectedOrderId,
+          },
+          geometry: {
+            type: "Polygon" as const,
+            coordinates: [circleRing(center, geofenceRadiusMeters)],
+          },
+        };
+      }),
+    );
+    const geofenceSource = map.getSource("geofences") as
+      maplibregl.GeoJSONSource | undefined;
+    geofenceSource?.setData({
+      type: "FeatureCollection",
+      features: geofenceFeatures,
+    });
+    const trailSource = map.getSource("driver-trails") as
+      maplibregl.GeoJSONSource | undefined;
+    trailSource?.setData({
+      type: "FeatureCollection",
+      features: drivers.flatMap((driver) => {
+        const coordinates = trailsRef.current[driver.id] || [];
+        return coordinates.length > 1
+          ? [
+              {
+                type: "Feature" as const,
+                properties: { driverId: driver.id, name: driver.name },
+                geometry: { type: "LineString" as const, coordinates },
+              },
+            ]
+          : [];
+      }),
+    });
     if (showStops) {
       for (const order of activeOrders) {
         const pickup = document.createElement("button");
@@ -258,6 +516,7 @@ export function LiveMap({
             .setLngLat([order.pickup.lng, order.pickup.lat])
             .addTo(map),
         );
+        if (activeOrders.length > 12) continue;
         const stop = document.createElement("button");
         stop.type = "button";
         stop.className = `stop-marker ${order.priority}${selectedOrderId === order.id ? " selected" : ""}`;
@@ -287,6 +546,26 @@ export function LiveMap({
         );
       }
     }
+    const clusterSource = map.getSource("delivery-clusters") as
+      maplibregl.GeoJSONSource | undefined;
+    clusterSource?.setData({
+      type: "FeatureCollection",
+      features:
+        activeOrders.length > 12
+          ? activeOrders.map((order) => ({
+              type: "Feature" as const,
+              properties: {
+                id: order.id,
+                priority: order.priority,
+                lateRisk: !!order.lateRisk,
+              },
+              geometry: {
+                type: "Point" as const,
+                coordinates: [order.dropoff.lng, order.dropoff.lat],
+              },
+            }))
+          : [],
+    });
     const source = map.getSource("delivery-routes") as
       maplibregl.GeoJSONSource | undefined;
     if (source) {
@@ -334,8 +613,10 @@ export function LiveMap({
     }
   }, [
     activeOrders,
+    clock,
     drivers,
     fitOperations,
+    geofenceRadiusMeters,
     loaded,
     onDriverSelect,
     onOrderSelect,
@@ -349,13 +630,33 @@ export function LiveMap({
 
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !loaded || !map.getLayer("delivery-routes")) return;
-    map.setLayoutProperty(
-      "delivery-routes",
-      "visibility",
-      showRoutes ? "visible" : "none",
-    );
-  }, [loaded, showRoutes]);
+    if (!map || !loaded) return;
+    const visibility = (value: boolean) => (value ? "visible" : "none");
+    if (map.getLayer("delivery-routes"))
+      map.setLayoutProperty(
+        "delivery-routes",
+        "visibility",
+        visibility(showRoutes),
+      );
+    for (const layer of ["geofence-fill", "geofence-line"]) {
+      if (map.getLayer(layer))
+        map.setLayoutProperty(layer, "visibility", visibility(showGeofences));
+    }
+    if (map.getLayer("driver-trails"))
+      map.setLayoutProperty(
+        "driver-trails",
+        "visibility",
+        visibility(showTrails),
+      );
+    for (const layer of [
+      "delivery-cluster-circles",
+      "delivery-cluster-count",
+      "delivery-cluster-point",
+    ]) {
+      if (map.getLayer(layer))
+        map.setLayoutProperty(layer, "visibility", visibility(showStops));
+    }
+  }, [loaded, showGeofences, showRoutes, showStops, showTrails]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -397,6 +698,57 @@ export function LiveMap({
     );
   };
 
+  const search = async () => {
+    if (searchQuery.trim().length < 3) return;
+    setSearching(true);
+    setSearchError("");
+    try {
+      setSearchResults(await api.mapSearch(searchQuery.trim()));
+    } catch (error) {
+      setSearchResults([]);
+      setSearchError(
+        error instanceof Error ? error.message : "Address search failed",
+      );
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  const chooseSearchResult = (result: MapSearchResult) => {
+    const map = mapRef.current;
+    if (!map) return;
+    searchMarkerRef.current?.remove();
+    const element = document.createElement("div");
+    element.className = "search-result-marker";
+    searchMarkerRef.current = new maplibregl.Marker({ element })
+      .setLngLat([result.lng, result.lat])
+      .setPopup(new maplibregl.Popup({ offset: 18 }).setText(result.label))
+      .addTo(map);
+    map.flyTo({ center: [result.lng, result.lat], zoom: 14, duration: 650 });
+    searchMarkerRef.current.togglePopup();
+    setSearchResults([]);
+  };
+
+  const operationalState = useMemo(() => {
+    const driverById = new Map(drivers.map((driver) => [driver.id, driver]));
+    const inside = activeOrders.filter((order) => {
+      const driver = order.assignedDriverId
+        ? driverById.get(order.assignedDriverId)
+        : undefined;
+      if (!driver) return false;
+      const stop = order.status === "assigned" ? order.pickup : order.dropoff;
+      return distanceMeters(driver.location, stop) <= geofenceRadiusMeters;
+    }).length;
+    return {
+      live: drivers.filter(
+        (driver) => driver.status !== "offline" && !isStale(driver, clock),
+      ).length,
+      stale: drivers.filter((driver) => isStale(driver, clock)).length,
+      atRisk: activeOrders.filter((order) => order.lateRisk).length,
+      inside,
+    };
+  }, [activeOrders, clock, drivers, geofenceRadiusMeters]);
+
   return (
     <div className="map-stage">
       <div
@@ -404,6 +756,57 @@ export function LiveMap({
         className="live-map"
         aria-label="Live fleet and delivery map"
       />
+      <form
+        className="map-search"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void search();
+        }}
+      >
+        <Search aria-hidden="true" />
+        <input
+          value={searchQuery}
+          onChange={(event) => setSearchQuery(event.target.value)}
+          placeholder="Search any address"
+          aria-label="Search map address"
+        />
+        {searchQuery && (
+          <button
+            type="button"
+            title="Clear map search"
+            onClick={() => {
+              setSearchQuery("");
+              setSearchResults([]);
+              setSearchError("");
+              searchMarkerRef.current?.remove();
+              searchMarkerRef.current = null;
+            }}
+          >
+            <X />
+          </button>
+        )}
+        <button type="submit" disabled={searching || searchQuery.length < 3}>
+          {searching ? "…" : "Go"}
+        </button>
+        {(searchResults.length > 0 || searchError) && (
+          <div className="map-search-results">
+            {searchError && <p>{searchError}</p>}
+            {searchResults.map((result) => (
+              <button
+                type="button"
+                key={result.id}
+                onClick={() => chooseSearchResult(result)}
+              >
+                <MapPin />
+                <span>
+                  <strong>{result.label.split(",")[0]}</strong>
+                  <small>{result.label}</small>
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+      </form>
       <div className="map-tools" aria-label="Map controls">
         <button
           type="button"
@@ -434,12 +837,40 @@ export function LiveMap({
           onClick={() => setShowStops((value) => !value)}
           title="Toggle pickup and delivery stops"
         >
-          <Layers3 /> Stops
+          <MapPin /> Stops
+        </button>
+        <button
+          className={showGeofences ? "active" : ""}
+          type="button"
+          onClick={() => setShowGeofences((value) => !value)}
+          title={`Toggle ${geofenceRadiusMeters} metre geofences`}
+        >
+          <ShieldCheck /> Geofences
+        </button>
+        <button
+          className={showTrails ? "active" : ""}
+          type="button"
+          onClick={() => setShowTrails((value) => !value)}
+          title="Toggle session driver trails"
+        >
+          <History /> Trails
         </button>
         <button type="button" onClick={locate} title="Show my location">
           <LocateFixed />{" "}
           {locationState === "locating" ? "Locating…" : "My location"}
         </button>
+      </div>
+      <div className="map-telemetry" aria-label="Live map status">
+        <span className="healthy">{operationalState.live} live</span>
+        <span className={operationalState.inside ? "healthy" : ""}>
+          {operationalState.inside} in geofence
+        </span>
+        <span className={operationalState.stale ? "warning" : ""}>
+          {operationalState.stale} stale GPS
+        </span>
+        <span className={operationalState.atRisk ? "warning" : ""}>
+          {operationalState.atRisk} at risk
+        </span>
       </div>
       {!loaded && (
         <div className="map-loading">
@@ -454,7 +885,8 @@ export function LiveMap({
       )}
       {loaded && !Object.keys(roadRoutes).length && activeOrders.length > 0 && (
         <div className="map-route-note">
-          Road routing is loading; straight-line routes are shown temporarily.
+          <AlertTriangle /> Road routing is loading; straight-line routes are
+          shown temporarily.
         </div>
       )}
     </div>

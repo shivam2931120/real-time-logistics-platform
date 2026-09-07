@@ -16,6 +16,7 @@ const statusLabel = (value: string) => value.replace("_", " ");
 export function DeliveriesPage({
   orders,
   drivers,
+  geofenceRadiusMeters,
   create,
   select,
   assign,
@@ -23,6 +24,7 @@ export function DeliveriesPage({
 }: {
   orders: Order[];
   drivers: Driver[];
+  geofenceRadiusMeters?: number;
   create: () => void;
   select: (order: Order) => void;
   assign: (id: string) => Promise<void>;
@@ -97,6 +99,7 @@ export function DeliveriesPage({
             drivers={drivers}
             orders={filtered}
             selectedOrderId={selectedId}
+            geofenceRadiusMeters={geofenceRadiusMeters}
             onOrderSelect={choose}
           />
         </div>

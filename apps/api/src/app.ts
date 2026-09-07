@@ -60,9 +60,14 @@ import type {
   SupportTicket,
 } from "@routepulse/shared";
 import { allowedWebOrigins } from "./config/origins.js";
+import { roadRoute, searchPlaces } from "./services/mapGateway.js";
 
 const coordinate = z.object({
   label: z.string().min(3).max(160),
+  lat: z.number().min(-90).max(90),
+  lng: z.number().min(-180).max(180),
+});
+const mapCoordinate = z.object({
   lat: z.number().min(-90).max(90),
   lng: z.number().min(-180).max(180),
 });
@@ -268,6 +273,26 @@ export function createApp() {
       timestamp: new Date().toISOString(),
     }),
   );
+  app.post("/api/maps/route", async (req, res, next) => {
+    try {
+      const { points } = z
+        .object({ points: z.array(mapCoordinate).min(2).max(25) })
+        .parse(req.body);
+      return res.json(await roadRoute(points));
+    } catch (error) {
+      next(error);
+    }
+  });
+  app.get("/api/maps/search", async (req, res, next) => {
+    try {
+      const { query } = z
+        .object({ query: z.string().trim().min(3).max(120) })
+        .parse(req.query);
+      return res.json(await searchPlaces(query));
+    } catch (error) {
+      next(error);
+    }
+  });
   app.post("/api/auth/demo", (req, res) => {
     const parsed = z
       .object({ role: z.enum(["admin", "dispatcher", "driver", "customer"]) })
@@ -517,11 +542,9 @@ export function createApp() {
         if (!order || !canAccessOrder(req.user!, order))
           return res.status(404).json({ error: "Delivery not found" });
         if (!["pending", "assigned"].includes(order.status))
-          return res
-            .status(409)
-            .json({
-              error: "Only pending or assigned deliveries can be cancelled",
-            });
+          return res.status(409).json({
+            error: "Only pending or assigned deliveries can be cancelled",
+          });
         const driver = drivers.find(
           (item) => item.id === order.assignedDriverId,
         );
@@ -1108,26 +1131,72 @@ export function createApp() {
   app.get(
     "/api/reports/summary.csv",
     permit("admin", "dispatcher"),
-    (req, res) => {
-      const summary = store.summary(req.user!.organizationId);
-      const lines = [
-        csvRow(["metric", "value"]),
-        csvRow(["active_drivers", summary.activeDrivers]),
-        csvRow(["deliveries_today", summary.deliveriesToday]),
-        csvRow(["on_time_rate", `${summary.onTimeRate}%`]),
-        csvRow(["revenue", summary.revenue]),
-        csvRow(["average_delivery_minutes", summary.averageDeliveryMinutes]),
-        ...Object.entries(summary.statusCounts).map(([key, value]) =>
-          csvRow([`status_${key}`, value]),
-        ),
-      ];
-      res
-        .type("text/csv")
-        .setHeader(
-          "Content-Disposition",
-          "attachment; filename=routepulse-summary.csv",
-        )
-        .send(lines.join("\n"));
+    (req, res, next) => {
+      try {
+        const { days } = z
+          .object({
+            days: z.coerce.number().int().min(7).max(90).default(7),
+          })
+          .parse(req.query);
+        const summary = store.summary(req.user!.organizationId, days);
+        const lines = [
+          csvRow(["metric", "value"]),
+          csvRow(["window_days", summary.windowDays]),
+          csvRow(["total_orders", summary.totalOrders]),
+          csvRow(["active_drivers", summary.activeDrivers]),
+          csvRow(["deliveries_today", summary.deliveriesToday]),
+          csvRow(["completion_rate", `${summary.completionRate}%`]),
+          csvRow(["on_time_rate", `${summary.onTimeRate}%`]),
+          csvRow([
+            "payment_collection_rate",
+            `${summary.paymentCollectionRate}%`,
+          ]),
+          csvRow(["at_risk_deliveries", summary.atRiskDeliveries]),
+          csvRow(["open_exceptions", summary.openExceptions]),
+          csvRow(["revenue", summary.revenue]),
+          csvRow(["revenue_per_delivery", summary.revenuePerDelivery]),
+          csvRow(["average_delivery_minutes", summary.averageDeliveryMinutes]),
+          csvRow(["total_route_km", summary.totalRouteKm]),
+          csvRow(["average_route_km", summary.averageRouteKm]),
+          csvRow(["geofence_arrivals", summary.geofence.arrivals]),
+          csvRow(["geofence_departures", summary.geofence.departures]),
+          csvRow([
+            "geofence_currently_inside",
+            summary.geofence.currentlyInside,
+          ]),
+          csvRow([
+            "geofence_average_dwell_minutes",
+            summary.geofence.averageDwellMinutes,
+          ]),
+          ...Object.entries(summary.statusCounts).map(([key, value]) =>
+            csvRow([`status_${key}`, value]),
+          ),
+          ...summary.priorityPerformance.flatMap((priority) => [
+            csvRow([`priority_${priority.priority}_orders`, priority.orders]),
+            csvRow([
+              `priority_${priority.priority}_on_time_rate`,
+              `${priority.onTimeRate}%`,
+            ]),
+          ]),
+          ...summary.driverPerformance.flatMap((driver) => [
+            csvRow([`driver_${driver.driverName}_assigned`, driver.assigned]),
+            csvRow([`driver_${driver.driverName}_completed`, driver.completed]),
+            csvRow([
+              `driver_${driver.driverName}_on_time_rate`,
+              `${driver.onTimeRate}%`,
+            ]),
+          ]),
+        ];
+        return res
+          .type("text/csv")
+          .setHeader(
+            "Content-Disposition",
+            "attachment; filename=routepulse-summary.csv",
+          )
+          .send(lines.join("\n"));
+      } catch (error) {
+        next(error);
+      }
     },
   );
   app.get("/api/support/tickets", (req, res) =>
@@ -1554,8 +1623,19 @@ export function createApp() {
       }
     },
   );
-  app.get("/api/analytics/summary", permit("admin", "dispatcher"), (req, res) =>
-    res.json(store.summary(req.user!.organizationId)),
+  app.get(
+    "/api/analytics/summary",
+    permit("admin", "dispatcher"),
+    (req, res, next) => {
+      try {
+        const { days } = z
+          .object({ days: z.coerce.number().int().min(7).max(90).default(7) })
+          .parse(req.query);
+        return res.json(store.summary(req.user!.organizationId, days));
+      } catch (error) {
+        next(error);
+      }
+    },
   );
   app.use((_req, res) => res.status(404).json({ error: "Route not found" }));
   app.use(

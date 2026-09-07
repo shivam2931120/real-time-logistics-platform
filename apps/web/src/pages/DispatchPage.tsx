@@ -6,10 +6,12 @@ import { LiveMap } from "../components/LiveMap";
 export function DispatchPage({
   orders,
   drivers,
+  geofenceRadiusMeters,
   assign,
 }: {
   orders: Order[];
   drivers: Driver[];
+  geofenceRadiusMeters?: number;
   assign: (orderId: string, driverId: string) => Promise<void>;
 }) {
   const [orderId, setOrderId] = useState("");
@@ -141,6 +143,7 @@ export function DispatchPage({
           orders={[...pending, ...active]}
           selectedOrderId={orderId}
           selectedDriverId={driverId}
+          geofenceRadiusMeters={geofenceRadiusMeters}
           onOrderSelect={(order) =>
             order.status === "pending" && setOrderId(order.id)
           }
