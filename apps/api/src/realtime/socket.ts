@@ -10,7 +10,7 @@ import {
 } from "../domain/store.js";
 import { persistDriver, persistOrder } from "../db/persistence.js";
 import { resolveClerkUser } from "../services/clerkIdentity.js";
-import { haversineKm } from "../services/optimizer.js";
+import { geofenceTransitions } from "../services/geofence.js";
 
 export function configureSockets(io: Server) {
   io.use((socket, next) => {
@@ -107,28 +107,23 @@ export function configureSockets(io: Server) {
         .filter((o) => o.assignedDriverId === d.id)
         .forEach((o) => {
           io.to(`track:${o.trackingCode}`).emit("driver:location", update);
-          const pickup = ["assigned"].includes(o.status);
-          const destination = pickup ? o.pickup : o.dropoff;
-          const eventType = pickup
-            ? "geofence_pickup_arrival"
-            : "geofence_dropoff_arrival";
-          if (
-            !["assigned", "picked_up", "in_transit"].includes(o.status) ||
-            o.events.some((event) => event.type === eventType) ||
-            haversineKm(d.location, destination) * 1000 >
-              organizationSettings.geofenceRadiusMeters
-          )
-            return;
-          o.updatedAt = new Date().toISOString();
-          o.events.push({
-            id: crypto.randomUUID(),
-            type: eventType,
-            message: pickup
-              ? "Driver arrived at pickup"
-              : "Driver arrived near the destination",
-            actorId: user.id,
-            createdAt: o.updatedAt,
-          });
+          const transitions = geofenceTransitions(
+            o,
+            d.location,
+            organizationSettings.geofenceRadiusMeters,
+          );
+          if (!transitions.length) return;
+          const timestamp = new Date().toISOString();
+          for (const transition of transitions) {
+            o.events.push({
+              id: crypto.randomUUID(),
+              type: transition.type,
+              message: transition.message,
+              actorId: user.id,
+              createdAt: timestamp,
+            });
+          }
+          o.updatedAt = timestamp;
           void persistOrder(o);
           io.to(`tenant:${user.organizationId}`).emit("order:updated", o);
           io.to(`track:${o.trackingCode}`).emit("order:updated", o);

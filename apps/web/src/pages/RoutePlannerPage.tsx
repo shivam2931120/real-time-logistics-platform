@@ -1,8 +1,35 @@
 import { useEffect, useMemo, useState } from "react";
-import { CheckCircle2, Clock3, Route, Sparkles, Truck } from "lucide-react";
+import {
+  CheckCircle2,
+  Clock3,
+  GripVertical,
+  Route,
+  Sparkles,
+  Truck,
+} from "lucide-react";
 import type { Driver, Order } from "@routepulse/shared";
 import { api, type RoutePlan } from "../lib/api";
 import { LiveMap } from "../components/LiveMap";
+
+type PlannedStop = RoutePlan["stops"][number];
+
+const distanceKm = (
+  start: { lat: number; lng: number },
+  stops: PlannedStop[],
+) => {
+  const points = [start, ...stops];
+  return points.slice(1).reduce((total, point, index) => {
+    const previous = points[index];
+    const lat = ((point.lat - previous.lat) * Math.PI) / 180;
+    const lng = ((point.lng - previous.lng) * Math.PI) / 180;
+    const a =
+      Math.sin(lat / 2) ** 2 +
+      Math.cos((previous.lat * Math.PI) / 180) *
+        Math.cos((point.lat * Math.PI) / 180) *
+        Math.sin(lng / 2) ** 2;
+    return total + 6371 * 2 * Math.asin(Math.sqrt(a));
+  }, 0);
+};
 
 export function RoutePlannerPage({
   drivers,
@@ -21,6 +48,8 @@ export function RoutePlannerPage({
   const [driverId, setDriverId] = useState("");
   const [selected, setSelected] = useState<string[]>([]);
   const [plan, setPlan] = useState<RoutePlan | null>(null);
+  const [planStops, setPlanStops] = useState<PlannedStop[]>([]);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   useEffect(() => {
@@ -34,9 +63,14 @@ export function RoutePlannerPage({
     );
   }, [candidates]);
   const driver = drivers.find((item) => item.id === driverId);
-  const selectedOrders = candidates.filter((order) =>
-    selected.includes(order.id),
-  );
+  const orderedSelectedOrders = selected
+    .map((id) => candidates.find((order) => order.id === id))
+    .filter((order): order is Order => Boolean(order));
+  const selectedOrders = orderedSelectedOrders;
+  const orderedCandidates = [
+    ...orderedSelectedOrders,
+    ...candidates.filter((order) => !selected.includes(order.id)),
+  ];
   const demand = selectedOrders.reduce(
     (total, order) => total + order.packageWeightKg,
     0,
@@ -49,7 +83,9 @@ export function RoutePlannerPage({
     setBusy(true);
     setError("");
     try {
-      setPlan(await api.optimize(driverId, selected));
+      const nextPlan = await api.optimize(driverId, selected);
+      setPlan(nextPlan);
+      setPlanStops(nextPlan.stops);
     } catch (reason) {
       setPlan(null);
       setError(
@@ -58,6 +94,42 @@ export function RoutePlannerPage({
     } finally {
       setBusy(false);
     }
+  };
+  const reorderSelected = (sourceId: string, targetId: string) => {
+    if (sourceId === targetId) return;
+    setSelected((current) => {
+      const next = [...current];
+      const sourceIndex = next.indexOf(sourceId);
+      const targetIndex = next.indexOf(targetId);
+      if (sourceIndex < 0 || targetIndex < 0) return current;
+      next.splice(sourceIndex, 1);
+      next.splice(targetIndex, 0, sourceId);
+      return next;
+    });
+    setPlan(null);
+    setPlanStops([]);
+  };
+  const reorderPlan = (sourceId: string, targetId: string) => {
+    if (sourceId === targetId || !driver) return;
+    const next = [...planStops];
+    const sourceIndex = next.findIndex((stop) => stop.id === sourceId);
+    const targetIndex = next.findIndex((stop) => stop.id === targetId);
+    if (sourceIndex < 0 || targetIndex < 0) return;
+    const [moved] = next.splice(sourceIndex, 1);
+    next.splice(targetIndex, 0, moved);
+    const distance = distanceKm(driver.location, next);
+    setPlanStops(next);
+    setPlan((current) =>
+      current
+        ? {
+            ...current,
+            stops: next,
+            distanceKm: +distance.toFixed(2),
+            durationMinutes: Math.ceil((distance / 24) * 60 + next.length * 6),
+            algorithm: "manual drag order",
+          }
+        : current,
+    );
   };
   return (
     <section className="planner-layout">
@@ -76,6 +148,7 @@ export function RoutePlannerPage({
             onChange={(event) => {
               setDriverId(event.target.value);
               setPlan(null);
+              setPlanStops([]);
             }}
           >
             {drivers.map((item) => (
@@ -106,11 +179,15 @@ export function RoutePlannerPage({
             <button
               type="button"
               onClick={() =>
-                setSelected(
-                  selected.length === candidates.length
-                    ? []
-                    : candidates.map((order) => order.id),
-                )
+                (() => {
+                  setSelected(
+                    selected.length === candidates.length
+                      ? []
+                      : candidates.map((order) => order.id),
+                  );
+                  setPlan(null);
+                  setPlanStops([]);
+                })()
               }
             >
               {selected.length === candidates.length
@@ -118,11 +195,26 @@ export function RoutePlannerPage({
                 : "Select all"}
             </button>
           </div>
-          {candidates.map((order) => (
+          <small className="route-edit-hint">
+            Drag selected stops to set the preferred sequence before optimizing.
+          </small>
+          {orderedCandidates.map((order) => (
             <label
               key={order.id}
-              className={selected.includes(order.id) ? "selected" : ""}
+              draggable={selected.includes(order.id)}
+              className={`${selected.includes(order.id) ? "selected" : ""}${draggingId === order.id ? " dragging" : ""}`}
+              onDragStart={() => {
+                if (selected.includes(order.id)) setDraggingId(order.id);
+              }}
+              onDragOver={(event) => event.preventDefault()}
+              onDrop={() => {
+                if (draggingId && selected.includes(order.id))
+                  reorderSelected(draggingId, order.id);
+                setDraggingId(null);
+              }}
+              onDragEnd={() => setDraggingId(null)}
             >
+              <GripVertical className="drag-handle" aria-hidden="true" />
               <input
                 type="checkbox"
                 checked={selected.includes(order.id)}
@@ -133,6 +225,7 @@ export function RoutePlannerPage({
                       : [...items, order.id],
                   );
                   setPlan(null);
+                  setPlanStops([]);
                 }}
               />
               <span>
@@ -141,9 +234,15 @@ export function RoutePlannerPage({
                   {order.dropoff.label} · {order.packageWeightKg} kg
                 </small>
               </span>
+              <b className="stop-order">{selected.indexOf(order.id) + 1}</b>
               <b>{order.priority}</b>
             </label>
           ))}
+          {selected.length < candidates.length && (
+            <small className="route-edit-hint muted">
+              Unselected deliveries remain available below the active sequence.
+            </small>
+          )}
         </div>
         {!drivers.length && (
           <p className="inline-notice">Add a driver before planning a route.</p>
@@ -173,7 +272,7 @@ export function RoutePlannerPage({
           orders={selectedOrders}
           selectedDriverId={driverId}
           routeCoordinates={
-            plan && driver ? [driver.location, ...plan.stops] : undefined
+            plan && driver ? [driver.location, ...planStops] : undefined
           }
         />
         {plan ? (
@@ -182,7 +281,11 @@ export function RoutePlannerPage({
               <Route />
               <span>
                 <strong>{plan.distanceKm} km</strong>
-                <small>Optimized distance</small>
+                <small>
+                  {plan.algorithm === "manual drag order"
+                    ? "Manual sequence estimate"
+                    : "Optimized distance"}
+                </small>
               </span>
             </div>
             <div>
@@ -200,13 +303,28 @@ export function RoutePlannerPage({
               </span>
             </div>
             <ol>
-              {plan.stops.map((stop, index) => (
-                <li key={stop.id}>
+              {planStops.map((stop, index) => (
+                <li
+                  key={stop.id}
+                  draggable
+                  className={draggingId === stop.id ? "dragging" : ""}
+                  onDragStart={() => setDraggingId(stop.id)}
+                  onDragOver={(event) => event.preventDefault()}
+                  onDrop={() => {
+                    if (draggingId) reorderPlan(draggingId, stop.id);
+                    setDraggingId(null);
+                  }}
+                  onDragEnd={() => setDraggingId(null)}
+                >
                   <span>{index + 1}</span>
                   <div>
                     <strong>{stop.label}</strong>
                     <small>{stop.demandKg || 0} kg delivery</small>
                   </div>
+                  <GripVertical
+                    className="route-drag-icon"
+                    aria-label="Drag to reorder stop"
+                  />
                   <CheckCircle2 />
                 </li>
               ))}
