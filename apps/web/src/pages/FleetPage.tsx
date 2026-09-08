@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { LocateFixed, Radio, Truck } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { CheckCircle2, LocateFixed, Radio, Save, Truck } from "lucide-react";
 import type { Driver, DriverStatus, Order } from "@routepulse/shared";
 import { LiveMap } from "../components/LiveMap";
 import { api } from "../lib/api";
@@ -24,6 +24,9 @@ export function FleetPage({
 }) {
   const [filter, setFilter] = useState<"all" | DriverStatus>("all");
   const [selectedId, setSelectedId] = useState(drivers[0]?.id ?? "");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [saved, setSaved] = useState(false);
   const visible = useMemo(
     () =>
       filter === "all"
@@ -31,20 +34,46 @@ export function FleetPage({
         : drivers.filter((driver) => driver.status === filter),
     [drivers, filter],
   );
-  const selected = drivers.find((driver) => driver.id === selectedId);
+  const selected = visible.find((driver) => driver.id === selectedId);
+  useEffect(() => {
+    if (visible.length && !visible.some((driver) => driver.id === selectedId))
+      setSelectedId(visible[0].id);
+  }, [selectedId, visible]);
+  useEffect(() => {
+    setError("");
+    setSaved(false);
+  }, [selectedId]);
 
-  const update = async (data: {
-    status?: DriverStatus;
-    capacityKg?: number;
-    shiftStart?: string;
-    shiftEnd?: string;
-    vehiclePlate?: string;
-    maintenanceDueAt?: string;
-    maintenanceStatus?: "ok" | "due" | "overdue";
-  }) => {
-    if (!selected) return;
-    await api.updateDriver(selected.id, data);
-    reload();
+  const save = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!selected || saving) return;
+    setSaving(true);
+    setSaved(false);
+    setError("");
+    const form = new FormData(event.currentTarget);
+    const maintenanceDate = String(form.get("maintenanceDueAt") || "");
+    try {
+      await api.updateDriver(selected.id, {
+        status: String(form.get("status")) as DriverStatus,
+        capacityKg: Number(form.get("capacityKg")),
+        vehiclePlate: String(form.get("vehiclePlate") || "").trim(),
+        shiftStart: String(form.get("shiftStart")),
+        shiftEnd: String(form.get("shiftEnd")),
+        maintenanceDueAt: maintenanceDate
+          ? new Date(`${maintenanceDate}T00:00:00`).toISOString()
+          : null,
+        maintenanceStatus: String(form.get("maintenanceStatus")) as
+          "ok" | "due" | "overdue",
+      });
+      await reload();
+      setSaved(true);
+    } catch (reason) {
+      setError(
+        reason instanceof Error ? reason.message : "Unable to save driver",
+      );
+    } finally {
+      setSaving(false);
+    }
   };
   return (
     <section className="fleet-layout">
@@ -56,7 +85,7 @@ export function FleetPage({
           </div>
           <span className="live-dot">
             <i />
-            WebSocket live
+            Fleet positions
           </span>
         </div>
         <LiveMap
@@ -64,7 +93,9 @@ export function FleetPage({
           orders={orders}
           selectedDriverId={selectedId}
           geofenceRadiusMeters={geofenceRadiusMeters}
-          onDriverSelect={(driver) => setSelectedId(driver.id)}
+          onDriverSelect={(driver) => {
+            if (!saving) setSelectedId(driver.id);
+          }}
         />
       </div>
       <div className="panel fleet-roster">
@@ -81,6 +112,8 @@ export function FleetPage({
               type="button"
               className={filter === status ? "active" : ""}
               key={status}
+              disabled={saving}
+              aria-pressed={filter === status}
               onClick={() => setFilter(status)}
             >
               {status}
@@ -92,6 +125,7 @@ export function FleetPage({
             <button
               type="button"
               key={driver.id}
+              disabled={saving}
               className={selectedId === driver.id ? "selected" : ""}
               onClick={() => setSelectedId(driver.id)}
             >
@@ -110,6 +144,13 @@ export function FleetPage({
               <b>{driver.capacityKg} kg</b>
             </button>
           ))}
+          {!visible.length && (
+            <div className="compact-empty">
+              <Truck />
+              <strong>No drivers match this filter</strong>
+              <small>Try another availability status.</small>
+            </div>
+          )}
         </div>
         {selected && (
           <div className="driver-detail">
@@ -121,79 +162,89 @@ export function FleetPage({
               {selected.location.lng.toFixed(5)}
             </p>
             <small>
-              {selected.status === "offline"
-                ? "Last known location"
-                : "Receiving live location updates"}
+              Last location update:{" "}
+              {new Date(selected.lastSeenAt).toLocaleString()}
             </small>
-            <div className="driver-edit">
-              <select
-                value={selected.status}
-                onChange={(event) =>
-                  void update({ status: event.target.value as DriverStatus })
-                }
-              >
-                <option value="available">Available</option>
-                <option value="busy">Busy</option>
-                <option value="offline">Offline</option>
-              </select>
+            <form className="driver-edit" key={selected.id} onSubmit={save}>
+              <label>
+                Availability
+                <select name="status" defaultValue={selected.status}>
+                  <option value="available">Available</option>
+                  <option value="busy">Busy</option>
+                  <option value="offline">Offline</option>
+                </select>
+              </label>
               <label>
                 Capacity
                 <input
+                  name="capacityKg"
                   type="number"
                   min="1"
+                  max="5000"
+                  required
                   defaultValue={selected.capacityKg}
-                  onBlur={(event) =>
-                    void update({ capacityKg: Number(event.target.value) })
-                  }
                 />
               </label>
               <label>
                 Vehicle plate
                 <input
+                  name="vehiclePlate"
+                  maxLength={32}
                   defaultValue={selected.vehiclePlate || ""}
                   placeholder="KA-01-RP-101"
-                  onBlur={(event) =>
-                    void update({ vehiclePlate: event.target.value.trim() })
-                  }
                 />
               </label>
               <label>
                 Shift start
                 <input
+                  name="shiftStart"
+                  required
                   type="time"
                   defaultValue={selected.shiftStart || "08:00"}
-                  onBlur={(event) =>
-                    void update({ shiftStart: event.target.value })
-                  }
                 />
               </label>
               <label>
                 Shift end
                 <input
+                  name="shiftEnd"
+                  required
                   type="time"
                   defaultValue={selected.shiftEnd || "18:00"}
-                  onBlur={(event) =>
-                    void update({ shiftEnd: event.target.value })
-                  }
                 />
               </label>
               <label>
                 Maintenance
                 <select
+                  name="maintenanceStatus"
                   defaultValue={selected.maintenanceStatus || "ok"}
-                  onChange={(event) =>
-                    void update({
-                      maintenanceStatus: event.target.value as
-                        "ok" | "due" | "overdue",
-                    })
-                  }
                 >
                   <option value="ok">Operational</option>
                   <option value="due">Due soon</option>
                   <option value="overdue">Overdue</option>
                 </select>
               </label>
-            </div>
+              <label>
+                Maintenance date
+                <input
+                  name="maintenanceDueAt"
+                  type="date"
+                  defaultValue={selected.maintenanceDueAt?.slice(0, 10) || ""}
+                />
+              </label>
+              {error && (
+                <p className="error driver-form-message" role="alert">
+                  {error}
+                </p>
+              )}
+              {saved && (
+                <p className="driver-form-message saved-message" role="status">
+                  <CheckCircle2 /> Driver profile saved
+                </p>
+              )}
+              <button className="button primary full" disabled={saving}>
+                <Save /> {saving ? "Saving…" : "Save driver changes"}
+              </button>
+            </form>
           </div>
         )}
       </div>

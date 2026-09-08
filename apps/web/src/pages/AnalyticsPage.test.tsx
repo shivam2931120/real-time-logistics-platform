@@ -73,6 +73,27 @@ const summary: AnalyticsSummary = {
 describe("AnalyticsPage", () => {
   beforeEach(() => vi.clearAllMocks());
 
+  it("keeps the last successful reporting window when a request fails", async () => {
+    vi.mocked(api.analytics).mockRejectedValue(
+      new Error("Analytics unavailable"),
+    );
+    const exportCsv = vi.fn(async () => undefined);
+    const view = render(
+      <AnalyticsPage analytics={summary} exportCsv={exportCsv} />,
+    );
+    fireEvent.click(view.getByRole("button", { name: "90D" }));
+    expect(await view.findByText("Analytics unavailable")).toBeInTheDocument();
+    expect(view.getByRole("button", { name: "7D" })).toHaveClass("active");
+    expect(view.getByText("Last 7 days")).toBeInTheDocument();
+    fireEvent.click(view.getByRole("button", { name: "Export summary" }));
+    await waitFor(() => expect(exportCsv).toHaveBeenCalledWith(7));
+    await waitFor(() =>
+      expect(
+        view.getByRole("button", { name: "Export summary" }),
+      ).toBeEnabled(),
+    );
+  });
+
   it("renders operational insights and changes reporting window", async () => {
     vi.mocked(api.analytics).mockResolvedValue({ ...summary, windowDays: 30 });
     const exportCsv = vi.fn(async () => undefined);
@@ -84,7 +105,15 @@ describe("AnalyticsPage", () => {
     expect(view.getByText("Indiranagar")).toBeInTheDocument();
     fireEvent.click(view.getByRole("button", { name: "30D" }));
     await waitFor(() => expect(api.analytics).toHaveBeenCalledWith(30));
+    await waitFor(() =>
+      expect(view.getByRole("button", { name: "30D" })).toBeEnabled(),
+    );
     fireEvent.click(view.getByRole("button", { name: /Export summary/i }));
-    expect(exportCsv).toHaveBeenCalledWith(30);
+    await waitFor(() => expect(exportCsv).toHaveBeenCalledWith(30));
+    await waitFor(() =>
+      expect(
+        view.getByRole("button", { name: /Export summary/i }),
+      ).toBeEnabled(),
+    );
   });
 });

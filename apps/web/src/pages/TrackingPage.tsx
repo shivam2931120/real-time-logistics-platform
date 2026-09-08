@@ -3,7 +3,6 @@ import {
   CheckCircle2,
   Clock3,
   MapPin,
-  Navigation,
   PackageSearch,
   Radio,
   ShieldCheck,
@@ -130,12 +129,9 @@ export function TrackingPage() {
     <main className="tracking-page">
       <header>
         <a className="brand" href="/">
-          <span className="brand-mark">
-            <Navigation />
-          </span>
-          RoutePulse
+          <img className="brand-logo" src="/logo.png" alt="RoutePulse" />
         </a>
-        <a className="button ghost" href="/#/sign-in">
+        <a className="button ghost" href="/#/sign-in" aria-label="Team sign in">
           Team sign in
         </a>
       </header>

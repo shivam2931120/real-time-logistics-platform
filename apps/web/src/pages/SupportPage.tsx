@@ -3,6 +3,7 @@ import { ArrowLeft, LifeBuoy, Send, UserRound } from "lucide-react";
 import type { Order, SupportMessage, SupportTicket } from "@routepulse/shared";
 import { api } from "../lib/api";
 import { io } from "socket.io-client";
+import { useDialog } from "../lib/useDialog";
 
 export function SupportPage({
   orders = [],
@@ -19,32 +20,67 @@ export function SupportPage({
   const [error, setError] = useState("");
   const [draft, setDraft] = useState("");
   const [newTicket, setNewTicket] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [loadingMessages, setLoadingMessages] = useState(false);
+  const dialogRef = useDialog(newTicket, () => {
+    if (!busy) setNewTicket(false);
+  });
   const selected = tickets.find((ticket) => ticket.id === selectedId);
   const reload = async () => {
+    setLoading(true);
+    setError("");
     try {
       const next = await api.supportTickets();
       setTickets(next);
       if (!selectedId && next[0]) setSelectedId(next[0].id);
-      if (selectedId) setMessages(await api.supportMessages(selectedId));
     } catch (reason) {
       setError(
         reason instanceof Error ? reason.message : "Unable to load support",
       );
+    } finally {
+      setLoading(false);
     }
   };
   useEffect(() => {
     void reload();
   }, []);
   useEffect(() => {
-    if (selectedId)
+    let active = true;
+    setMessages([]);
+    setDraft("");
+    if (selectedId) {
+      setLoadingMessages(true);
       void api
         .supportMessages(selectedId)
-        .then(setMessages)
-        .catch(() => setMessages([]));
+        .then((history) => {
+          if (active)
+            setMessages((items) => [
+              ...history,
+              ...items.filter(
+                (item) => !history.some((entry) => entry.id === item.id),
+              ),
+            ]);
+        })
+        .catch((reason) => {
+          if (active)
+            setError(
+              reason instanceof Error
+                ? reason.message
+                : "Unable to load conversation",
+            );
+        })
+        .finally(() => {
+          if (active) setLoadingMessages(false);
+        });
+    }
+    return () => {
+      active = false;
+    };
   }, [selectedId]);
   useEffect(() => {
     if (!selectedId || !api.token()) return;
-    const socket = io(api.base, { auth: { token: api.token() } });
+    const socket = io(api.base, { auth: api.socketAuth });
     socket.on("connect", () => socket.emit("support:subscribe", selectedId));
     socket.on("support:message", (message: SupportMessage) => {
       if (message.ticketId === selectedId)
@@ -65,6 +101,9 @@ export function SupportPage({
   }, [selectedId]);
   const create = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (busy) return;
+    setBusy(true);
+    setError("");
     const form = new FormData(event.currentTarget);
     try {
       const ticket = await api.createSupportTicket({
@@ -77,20 +116,26 @@ export function SupportPage({
       setNewTicket(false);
       setTickets((items) => [ticket, ...items]);
       setSelectedId(ticket.id);
-      setMessages(await api.supportMessages(ticket.id));
-      event.currentTarget.reset();
     } catch (reason) {
       setError(
         reason instanceof Error ? reason.message : "Unable to create ticket",
       );
+    } finally {
+      setBusy(false);
     }
   };
   const send = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!selected || !draft.trim()) return;
+    if (!selected || !draft.trim() || busy) return;
+    setBusy(true);
+    setError("");
     try {
       const message = await api.sendSupportMessage(selected.id, draft.trim());
-      setMessages((items) => [...items, message]);
+      setMessages((items) =>
+        items.some((item) => item.id === message.id)
+          ? items
+          : [...items, message],
+      );
       setTickets((items) =>
         items.map((item) =>
           item.id === selected.id
@@ -108,10 +153,14 @@ export function SupportPage({
       setError(
         reason instanceof Error ? reason.message : "Unable to send message",
       );
+    } finally {
+      setBusy(false);
     }
   };
   const update = async (data: { status?: SupportTicket["status"] }) => {
-    if (!selected) return;
+    if (!selected || busy) return;
+    setBusy(true);
+    setError("");
     try {
       const ticket = await api.updateSupportTicket(selected.id, data);
       setTickets((items) =>
@@ -121,6 +170,8 @@ export function SupportPage({
       setError(
         reason instanceof Error ? reason.message : "Unable to update ticket",
       );
+    } finally {
+      setBusy(false);
     }
   };
   return (
@@ -143,7 +194,12 @@ export function SupportPage({
           <LifeBuoy /> New ticket
         </button>
       </div>
-      {error && <p className="error">{error}</p>}
+      {error && !newTicket && (
+        <div className="inline-retry" role="alert">
+          <span>{error}</span>
+          <button onClick={() => void reload()}>Refresh inbox</button>
+        </div>
+      )}
       <div className="support-layout">
         <aside className="panel support-list">
           <div className="panel-head">
@@ -156,6 +212,7 @@ export function SupportPage({
           {tickets.map((ticket) => (
             <button
               key={ticket.id}
+              disabled={busy}
               className={ticket.id === selectedId ? "active" : ""}
               onClick={() => setSelectedId(ticket.id)}
             >
@@ -169,7 +226,8 @@ export function SupportPage({
               <em>{ticket.status}</em>
             </button>
           ))}
-          {!tickets.length && (
+          {loading && <p role="status">Loading support inbox…</p>}
+          {!loading && !error && !tickets.length && (
             <div className="empty-state">
               <LifeBuoy />
               <strong>No tickets</strong>
@@ -191,6 +249,8 @@ export function SupportPage({
                 </div>
                 {!customerOnly && (
                   <select
+                    aria-label="Ticket status"
+                    disabled={busy}
                     value={selected.status}
                     onChange={(event) =>
                       void update({
@@ -205,6 +265,7 @@ export function SupportPage({
                 )}
               </div>
               <div className="message-list">
+                {loadingMessages && <p role="status">Loading conversation…</p>}
                 {messages.map((message) => (
                   <article
                     className={
@@ -232,12 +293,18 @@ export function SupportPage({
               </div>
               <form className="message-compose" onSubmit={send}>
                 <input
+                  aria-label="Reply to ticket"
+                  disabled={busy || loadingMessages}
+                  maxLength={2000}
                   value={draft}
                   onChange={(event) => setDraft(event.target.value)}
                   placeholder="Write a reply…"
                 />
-                <button className="button primary" disabled={!draft.trim()}>
-                  <Send /> Send
+                <button
+                  className="button primary"
+                  disabled={!draft.trim() || busy || loadingMessages}
+                >
+                  <Send /> {busy ? "Sending…" : "Send"}
                 </button>
               </form>
             </>
@@ -252,13 +319,25 @@ export function SupportPage({
       </div>
       {newTicket && (
         <div className="modal-backdrop">
-          <section className="modal">
+          <section
+            className="modal"
+            ref={dialogRef}
+            tabIndex={-1}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="support-title"
+          >
             <div className="modal-head">
               <div>
                 <span className="eyebrow">Support center</span>
-                <h2>Open a ticket</h2>
+                <h2 id="support-title">Open a ticket</h2>
               </div>
-              <button className="icon-btn" onClick={() => setNewTicket(false)}>
+              <button
+                className="icon-btn"
+                aria-label="Close ticket form"
+                disabled={busy}
+                onClick={() => setNewTicket(false)}
+              >
                 ×
               </button>
             </div>
@@ -267,6 +346,8 @@ export function SupportPage({
                 Subject
                 <input
                   name="subject"
+                  maxLength={120}
+                  data-dialog-autofocus
                   required
                   minLength={3}
                   placeholder="What do you need help with?"
@@ -308,22 +389,29 @@ export function SupportPage({
                 Message
                 <textarea
                   name="message"
+                  maxLength={2000}
                   required
                   minLength={3}
                   rows={5}
                   placeholder="Describe the issue…"
                 />
               </label>
+              {error && (
+                <p role="alert" className="error span-2">
+                  {error}
+                </p>
+              )}
               <div className="form-actions span-2">
                 <button
                   type="button"
                   className="button ghost"
+                  disabled={busy}
                   onClick={() => setNewTicket(false)}
                 >
                   Cancel
                 </button>
-                <button className="button primary">
-                  <Send /> Create ticket
+                <button className="button primary" disabled={busy}>
+                  <Send /> {busy ? "Creating…" : "Create ticket"}
                 </button>
               </div>
             </form>

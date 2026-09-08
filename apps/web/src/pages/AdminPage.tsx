@@ -14,32 +14,85 @@ export function AdminPage() {
   const [settings, setSettings] = useState<OrganizationSettings | null>(null);
   const [tab, setTab] = useState<"team" | "settings" | "audit">("team");
   const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
   const load = async () => {
-    const [team, records, configuration] = await Promise.all([
-      api.adminUsers(),
-      api.audit(),
-      api.settings(),
-    ]);
-    setUsers(team);
-    setAudit(records);
-    setSettings(configuration);
+    setLoading(true);
+    setError("");
+    try {
+      const [team, records, configuration] = await Promise.all([
+        api.adminUsers(),
+        api.audit(),
+        api.settings(),
+      ]);
+      setUsers(team);
+      setAudit(records);
+      setSettings(configuration);
+    } catch (reason) {
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : "Unable to load administration",
+      );
+    } finally {
+      setLoading(false);
+    }
   };
   useEffect(() => {
     void load();
   }, []);
   const role = async (user: User, value: Role) => {
-    await api.updateRole(user.id, value);
-    await load();
+    if (busy) return;
+    setBusy(true);
+    setError("");
+    setMessage("");
+    try {
+      await api.updateRole(user.id, value);
+      setMessage(`Role updated for ${user.name}`);
+      await load();
+    } catch (reason) {
+      setError(
+        reason instanceof Error ? reason.message : "Unable to update role",
+      );
+    } finally {
+      setBusy(false);
+    }
   };
   const save = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!settings) return;
-    await api.updateSettings(settings);
-    setMessage("Settings saved");
-    await load();
+    if (!settings || busy) return;
+    setBusy(true);
+    setError("");
+    setMessage("");
+    try {
+      await api.updateSettings(settings);
+      setMessage("Settings saved");
+      await load();
+    } catch (reason) {
+      setError(
+        reason instanceof Error ? reason.message : "Unable to save settings",
+      );
+    } finally {
+      setBusy(false);
+    }
   };
   return (
     <section className="admin-page">
+      {error && (
+        <div className="inline-retry" role="alert">
+          <span>{error}</span>
+          <button onClick={() => void load()} disabled={loading || busy}>
+            Retry
+          </button>
+        </div>
+      )}
+      {loading && <p role="status">Loading administration…</p>}
+      {message && (
+        <p className="saved-message" role="status">
+          {message}
+        </p>
+      )}
       <div className="admin-tabs">
         {(["team", "settings", "audit"] as const).map((value) => (
           <button
@@ -74,6 +127,7 @@ export function AdminPage() {
                 <small>{user.email}</small>
               </div>
               <select
+                disabled={busy || loading}
                 aria-label={`Role for ${user.name}`}
                 value={user.role}
                 onChange={(event) =>
@@ -159,10 +213,9 @@ export function AdminPage() {
             />
             Email and in-app notifications
           </label>
-          {message && <p className="success-note">{message}</p>}
-          <button className="button primary">
+          <button className="button primary" disabled={busy || loading}>
             <Save />
-            Save settings
+            {busy ? "Saving…" : "Save settings"}
           </button>
         </form>
       )}
@@ -184,7 +237,7 @@ export function AdminPage() {
               <small>{new Date(item.createdAt).toLocaleString()}</small>
             </div>
           ))}
-          {!audit.length && (
+          {!loading && !error && !audit.length && (
             <div className="empty-state">
               <ShieldCheck />
               <strong>No audit events yet</strong>

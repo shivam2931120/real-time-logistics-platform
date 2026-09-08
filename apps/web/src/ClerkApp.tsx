@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { SignIn, useAuth, useClerk } from "@clerk/clerk-react";
+import { AuthenticateWithRedirectCallback, useAuth, useClerk } from "@clerk/clerk-react";
 import App from "./App";
-import { api, setToken } from "./lib/api";
+import AuthPage from "./components/AuthPage";
+import { api, setToken, setTokenProvider } from "./lib/api";
 import { TrackingPage } from "./pages/TrackingPage";
 export default function ClerkApp() {
   const { isLoaded, isSignedIn, getToken } = useAuth();
@@ -12,11 +13,16 @@ export default function ClerkApp() {
   const publicTracking =
     window.location.pathname === "/track" ||
     window.location.pathname.startsWith("/track/");
+  const oauthCallback = window.location.pathname === "/sso-callback";
   useEffect(() => {
     let cancelled = false;
-    if (publicTracking) return;
+    if (publicTracking || oauthCallback) {
+      setTokenProvider(null);
+      return;
+    }
     if (!isLoaded) return;
     if (!isSignedIn) {
+      setTokenProvider(null);
       setToken("");
       setReady(false);
       setError("");
@@ -24,6 +30,7 @@ export default function ClerkApp() {
     }
     setReady(false);
     setError("");
+    setTokenProvider((options) => getToken(options));
     void (async () => {
       try {
         const value = await getToken();
@@ -44,14 +51,13 @@ export default function ClerkApp() {
     return () => {
       cancelled = true;
     };
-  }, [attempt, getToken, isLoaded, isSignedIn, publicTracking]);
+  }, [attempt, getToken, isLoaded, isSignedIn, oauthCallback, publicTracking]);
   if (publicTracking) return <TrackingPage />;
+  if (oauthCallback) return <AuthenticateWithRedirectCallback />;
   if (!isLoaded) return <div className="splash">Loading secure workspace…</div>;
   if (!isSignedIn)
     return (
-      <div className="clerk-login">
-        <SignIn routing="hash" signUpUrl="#/sign-up" />
-      </div>
+      <AuthPage />
     );
   if (error)
     return (
@@ -68,6 +74,7 @@ export default function ClerkApp() {
           <button
             className="button ghost"
             onClick={() => {
+              setTokenProvider(null);
               setToken("");
               void signOut();
             }}

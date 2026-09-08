@@ -32,8 +32,11 @@ export function DispatchPage({
       ),
     [drivers, selected],
   );
+  const canAssign = Boolean(
+    selected && eligible.some((driver) => driver.id === driverId),
+  );
   const submit = async () => {
-    if (!orderId || !driverId) return;
+    if (!canAssign || busy) return;
     setBusy(true);
     setError("");
     try {
@@ -79,6 +82,13 @@ export function DispatchPage({
                 {order.lateRisk && <AlertTriangle />}
               </button>
             ))}
+            {!pending.length && (
+              <div className="compact-empty">
+                <CheckCircle2 />
+                <strong>Dispatch queue is clear</strong>
+                <small>New unassigned deliveries will appear here.</small>
+              </div>
+            )}
           </div>
         </article>
         <article className="panel">
@@ -106,6 +116,17 @@ export function DispatchPage({
                 {driverId === driver.id && <CheckCircle2 />}
               </button>
             ))}
+            {!eligible.length && (
+              <div className="compact-empty">
+                <Truck />
+                <strong>No eligible drivers</strong>
+                <small>
+                  {selected
+                    ? "Check availability and vehicle capacity."
+                    : "Select a delivery to calculate eligibility."}
+                </small>
+              </div>
+            )}
           </div>
           <div className="dispatch-action">
             {selected ? (
@@ -119,7 +140,7 @@ export function DispatchPage({
             {error && <p className="error">{error}</p>}
             <button
               className="button primary full"
-              disabled={!orderId || !driverId || busy}
+              disabled={!canAssign || busy}
               onClick={() => void submit()}
             >
               {busy ? "Assigning…" : "Confirm assignment"}
@@ -144,11 +165,15 @@ export function DispatchPage({
           selectedOrderId={orderId}
           selectedDriverId={driverId}
           geofenceRadiusMeters={geofenceRadiusMeters}
-          onOrderSelect={(order) =>
-            order.status === "pending" && setOrderId(order.id)
-          }
+          onOrderSelect={(order) => {
+            if (order.status === "pending") {
+              setOrderId(order.id);
+              setDriverId("");
+            }
+          }}
           onDriverSelect={(driver) =>
-            driver.status === "available" && setDriverId(driver.id)
+            eligible.some((item) => item.id === driver.id) &&
+            setDriverId(driver.id)
           }
         />
       </article>

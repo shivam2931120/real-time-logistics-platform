@@ -92,6 +92,7 @@ export function LiveMap({
   const fittedRef = useRef(false);
   const [loaded, setLoaded] = useState(false);
   const [mapError, setMapError] = useState("");
+  const [mapAttempt, setMapAttempt] = useState(0);
   const [locationState, setLocationState] = useState<
     "idle" | "locating" | "denied"
   >("idle");
@@ -192,13 +193,31 @@ export function LiveMap({
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
-    const map = new maplibregl.Map({
-      container: containerRef.current,
-      style: import.meta.env.VITE_MAP_STYLE || FALLBACK_STYLE,
-      center: [77.606, 12.961],
-      zoom: 11.5,
-      attributionControl: false,
-    });
+    setLoaded(false);
+    setMapError("");
+    fittedRef.current = false;
+    let map: maplibregl.Map;
+    try {
+      map = new maplibregl.Map({
+        container: containerRef.current,
+        style: import.meta.env.VITE_MAP_STYLE || FALLBACK_STYLE,
+        center: [77.606, 12.961],
+        zoom: 11.5,
+        attributionControl: false,
+      });
+    } catch {
+      setMapError(
+        "Map rendering is unavailable. Enable hardware acceleration or try another browser. Delivery lists remain available.",
+      );
+      return;
+    }
+    const loadTimeout = window.setTimeout(
+      () =>
+        setMapError(
+          "The map provider is taking too long to respond. Check your connection or retry the map.",
+        ),
+      25000,
+    );
     map.addControl(
       new maplibregl.NavigationControl({ showCompass: false }),
       "top-right",
@@ -208,6 +227,8 @@ export function LiveMap({
       "bottom-right",
     );
     map.on("load", () => {
+      window.clearTimeout(loadTimeout);
+      setMapError("");
       map.addSource("geofences", {
         type: "geojson",
         data: { type: "FeatureCollection", features: [] },
@@ -388,13 +409,14 @@ export function LiveMap({
     });
     map.on("error", () => {
       setMapError(
-        "Map tiles are taking too long to load. Controls and live data remain available.",
+        "Some map resources could not load. Check your connection or retry the map.",
       );
     });
     const observer = new ResizeObserver(() => map.resize());
     observer.observe(containerRef.current);
     mapRef.current = map;
     return () => {
+      window.clearTimeout(loadTimeout);
       observer.disconnect();
       markersRef.current.forEach((marker) => marker.remove());
       userMarkerRef.current?.remove();
@@ -402,7 +424,7 @@ export function LiveMap({
       map.remove();
       mapRef.current = null;
     };
-  }, []);
+  }, [mapAttempt]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -873,9 +895,25 @@ export function LiveMap({
         </span>
       </div>
       {!loaded && (
-        <div className="map-loading">
+        <div className="map-loading" role="status">
           <Crosshair />
           {mapError || "Loading map…"}
+          {mapError && (
+            <button
+              className="button ghost"
+              onClick={() => setMapAttempt((value) => value + 1)}
+            >
+              Retry map
+            </button>
+          )}
+        </div>
+      )}
+      {loaded && mapError && (
+        <div className="map-notice" role="status">
+          {mapError}{" "}
+          <button onClick={() => setMapAttempt((value) => value + 1)}>
+            Retry map
+          </button>
         </div>
       )}
       {locationState === "denied" && (
@@ -885,8 +923,8 @@ export function LiveMap({
       )}
       {loaded && !Object.keys(roadRoutes).length && activeOrders.length > 0 && (
         <div className="map-route-note">
-          <AlertTriangle /> Road routing is loading; straight-line routes are
-          shown temporarily.
+          <AlertTriangle /> Road routing is unavailable or still loading. Dashed
+          lines show direct distances, not driving directions.
         </div>
       )}
     </div>

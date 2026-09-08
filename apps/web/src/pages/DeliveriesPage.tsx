@@ -10,6 +10,8 @@ const filters: Array<"all" | OrderStatus> = [
   "picked_up",
   "in_transit",
   "delivered",
+  "failed",
+  "cancelled",
 ];
 const statusLabel = (value: string) => value.replace("_", " ");
 
@@ -34,6 +36,8 @@ export function DeliveriesPage({
   const [status, setStatus] = useState<"all" | OrderStatus>("all");
   const [mapOpen, setMapOpen] = useState(true);
   const [selectedId, setSelectedId] = useState("");
+  const [working, setWorking] = useState("");
+  const [error, setError] = useState("");
   const filtered = useMemo(
     () =>
       orders.filter(
@@ -49,6 +53,28 @@ export function DeliveriesPage({
     setSelectedId(order.id);
     select(order);
   };
+  const autoAssign = async (order: Order) => {
+    setWorking(order.id);
+    setError("");
+    try {
+      await assign(order.id);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Assignment failed");
+    } finally {
+      setWorking("");
+    }
+  };
+  const download = async () => {
+    setWorking("export");
+    setError("");
+    try {
+      await exportCsv();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Export failed");
+    } finally {
+      setWorking("");
+    }
+  };
 
   return (
     <section className="deliveries-page">
@@ -56,6 +82,7 @@ export function DeliveriesPage({
         <label>
           <Search />
           <input
+            aria-label="Search deliveries"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder="Search tracking, customer, destination"
@@ -73,16 +100,26 @@ export function DeliveriesPage({
             <Plus />
             New delivery
           </button>
-          <button className="button ghost" onClick={() => void exportCsv()}>
-            <Download /> Export CSV
+          <button
+            className="button ghost"
+            disabled={Boolean(working)}
+            onClick={() => void download()}
+          >
+            <Download /> {working === "export" ? "Exporting…" : "Export CSV"}
           </button>
         </div>
       </div>
+      {error && (
+        <p className="inline-notice warning" role="alert">
+          {error}
+        </p>
+      )}
       <div className="filter-chips">
         {filters.map((value) => (
           <button
             type="button"
             className={status === value ? "active" : ""}
+            aria-pressed={status === value}
             key={value}
             onClick={() => setStatus(value)}
           >
@@ -176,17 +213,19 @@ export function DeliveriesPage({
                     </span>
                   </td>
                   <td>
-                    <button
-                      className="text-btn"
-                      onClick={() =>
-                        order.status === "pending"
-                          ? void assign(order.id)
-                          : choose(order)
-                      }
-                    >
-                      {order.status === "pending" ? "Auto assign" : "Details"}
-                      <ChevronRight />
+                    <button className="text-btn" onClick={() => choose(order)}>
+                      Details <ChevronRight />
                     </button>
+                    {order.status === "pending" && (
+                      <button
+                        className="text-btn"
+                        disabled={Boolean(working)}
+                        onClick={() => void autoAssign(order)}
+                      >
+                        {working === order.id ? "Assigning…" : "Auto assign"}
+                        <ChevronRight />
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -197,6 +236,15 @@ export function DeliveriesPage({
               <Search />
               <strong>No matching deliveries</strong>
               <span>Adjust the search or status filter.</span>
+              <button
+                className="button ghost"
+                onClick={() => {
+                  setQuery("");
+                  setStatus("all");
+                }}
+              >
+                Clear filters
+              </button>
             </div>
           )}
         </div>

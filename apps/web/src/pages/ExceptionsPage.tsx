@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, CheckCircle2, Clock3 } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Clock3, RefreshCw } from "lucide-react";
 import type { DeliveryException, Order } from "@routepulse/shared";
 import { api } from "../lib/api";
 
@@ -7,11 +7,21 @@ export function ExceptionsPage({ orders }: { orders: Order[] }) {
   const [items, setItems] = useState<DeliveryException[]>([]);
   const [filter, setFilter] = useState<"open" | "resolved" | "all">("open");
   const [error, setError] = useState("");
-  const load = () =>
-    api
-      .exceptions()
-      .then(setItems)
-      .catch((reason) => setError((reason as Error).message));
+  const [loading, setLoading] = useState(true);
+  const [resolving, setResolving] = useState("");
+  const load = async () => {
+    setLoading(true);
+    setError("");
+    try {
+      setItems(await api.exceptions());
+    } catch (reason) {
+      setError(
+        reason instanceof Error ? reason.message : "Unable to load exceptions",
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
   useEffect(() => {
     void load();
   }, []);
@@ -22,9 +32,20 @@ export function ExceptionsPage({ orders }: { orders: Order[] }) {
   );
   const resolve = async (item: DeliveryException) => {
     const resolution = window.prompt("How was this exception resolved?");
-    if (!resolution) return;
-    await api.resolveException(item.id, resolution);
-    await load();
+    if (!resolution?.trim() || resolving) return;
+    setResolving(item.id);
+    try {
+      await api.resolveException(item.id, resolution.trim());
+      await load();
+    } catch (reason) {
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : "Unable to resolve exception",
+      );
+    } finally {
+      setResolving("");
+    }
   };
   return (
     <section className="exceptions-page">
@@ -66,8 +87,22 @@ export function ExceptionsPage({ orders }: { orders: Order[] }) {
           </button>
         ))}
       </div>
-      {error && <p className="error">{error}</p>}
+      {error && (
+        <div className="inline-retry" role="alert">
+          <span>{error}</span>
+          <button onClick={() => void load()}>
+            <RefreshCw /> Retry
+          </button>
+        </div>
+      )}
       <div className="exception-list">
+        {loading && !items.length && (
+          <div className="panel list-skeleton" aria-label="Loading exceptions">
+            <i />
+            <i />
+            <i />
+          </div>
+        )}
         {visible.map((item) => {
           const order = orders.find((value) => value.id === item.orderId);
           return (
@@ -94,15 +129,16 @@ export function ExceptionsPage({ orders }: { orders: Order[] }) {
               {item.status === "open" && (
                 <button
                   className="button ghost"
+                  disabled={Boolean(resolving)}
                   onClick={() => void resolve(item)}
                 >
-                  Resolve
+                  {resolving === item.id ? "Resolving…" : "Resolve"}
                 </button>
               )}
             </article>
           );
         })}
-        {!visible.length && (
+        {!loading && !visible.length && !error && (
           <div className="panel empty-state">
             <CheckCircle2 />
             <strong>No {filter === "all" ? "" : filter} exceptions</strong>

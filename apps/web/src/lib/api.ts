@@ -19,12 +19,33 @@ import type {
 } from "@routepulse/shared";
 const base = import.meta.env.VITE_API_URL || "http://127.0.0.1:4000";
 let token = localStorage.getItem("routepulse_token") || "";
+type TokenProvider = (options?: { skipCache?: boolean }) => Promise<string | null>;
+let tokenProvider: TokenProvider | null = null;
+export class ApiError extends Error {
+  status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
 export const setToken = (value: string) => {
   token = value;
   if (value) localStorage.setItem("routepulse_token", value);
   else localStorage.removeItem("routepulse_token");
 };
-async function request<T>(path: string, options: RequestInit = {}) {
+export const setTokenProvider = (provider: TokenProvider | null) => {
+  tokenProvider = provider;
+};
+async function request<T>(path: string, options: RequestInit = {}, canRefresh = true): Promise<T> {
+  if (tokenProvider) {
+    try {
+      setToken((await tokenProvider()) || "");
+    } catch {
+      setToken("");
+    }
+  }
   const res = await fetch(`${base}${path}`, {
     ...options,
     headers: {
@@ -33,8 +54,29 @@ async function request<T>(path: string, options: RequestInit = {}) {
       ...options.headers,
     },
   });
-  const body = await res.json();
-  if (!res.ok) throw new Error(body.error || "Request failed");
+  let body: { error?: string } | T;
+  try {
+    body = (await res.json()) as { error?: string } | T;
+  } catch {
+    throw new ApiError(
+      res.ok ? "The server returned an invalid response" : "Request failed",
+      res.status,
+    );
+  }
+  if (res.status === 401 && canRefresh && tokenProvider) {
+    try {
+      const refreshed = await tokenProvider({ skipCache: true });
+      setToken(refreshed || "");
+      if (refreshed) return request<T>(path, options, false);
+    } catch {
+      setToken("");
+    }
+  }
+  if (!res.ok)
+    throw new ApiError(
+      (body as { error?: string }).error || "Request failed",
+      res.status,
+    );
   return body as T;
 }
 export type RoutePlan = {
@@ -64,6 +106,18 @@ export type MapSearchResult = {
 export const api = {
   base,
   token: () => token,
+  socketAuth: (callback: (data: object) => void) => {
+    void (async () => {
+      if (tokenProvider) {
+        try {
+          setToken((await tokenProvider()) || "");
+        } catch {
+          setToken("");
+        }
+      }
+      callback({ token });
+    })();
+  },
   login: async (role: Role) => {
     const data = await request<{ token: string; user: User }>(
       "/api/auth/demo",
@@ -174,7 +228,7 @@ export const api = {
       shiftStart?: string;
       shiftEnd?: string;
       vehiclePlate?: string;
-      maintenanceDueAt?: string;
+      maintenanceDueAt?: string | null;
       maintenanceStatus?: "ok" | "due" | "overdue";
     },
   ) =>

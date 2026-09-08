@@ -44,6 +44,7 @@ export function AnalyticsPage({
   const [summary, setSummary] = useState(analytics);
   const [days, setDays] = useState(7);
   const [loading, setLoading] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -51,17 +52,28 @@ export function AnalyticsPage({
   }, [analytics, days]);
 
   const changeWindow = async (nextDays: number) => {
-    setDays(nextDays);
     setLoading(true);
     setError("");
     try {
       setSummary(await api.analytics(nextDays));
+      setDays(nextDays);
     } catch (reason) {
       setError(
         reason instanceof Error ? reason.message : "Unable to load analytics",
       );
     } finally {
       setLoading(false);
+    }
+  };
+  const download = async () => {
+    setExporting(true);
+    setError("");
+    try {
+      await exportCsv(days);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Unable to export");
+    } finally {
+      setExporting(false);
     }
   };
 
@@ -117,9 +129,7 @@ export function AnalyticsPage({
   const statuses = Object.entries(summary.statusCounts).map(
     ([status, count]) => ({ status: status.replace("_", " "), count }),
   );
-  const activeTrend = summary.trend.filter(
-    (item, index) => days <= 30 || index % Math.ceil(days / 30) === 0,
-  );
+  const activeTrend = summary.trend;
 
   return (
     <section className="analytics-page">
@@ -143,8 +153,12 @@ export function AnalyticsPage({
               </button>
             ))}
           </div>
-          <button className="button ghost" onClick={() => void exportCsv(days)}>
-            <Download /> Export summary
+          <button
+            className="button ghost"
+            disabled={exporting || loading}
+            onClick={() => void download()}
+          >
+            <Download /> {exporting ? "Exporting…" : "Export summary"}
           </button>
         </div>
       </div>
@@ -169,7 +183,7 @@ export function AnalyticsPage({
           <div className="panel-head">
             <div>
               <span className="eyebrow">Last {days} days</span>
-              <h3>Delivery and revenue trend</h3>
+              <h3>Daily completed deliveries</h3>
             </div>
           </div>
           <ResponsiveContainer width="100%" height={300}>

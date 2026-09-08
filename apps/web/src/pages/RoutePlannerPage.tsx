@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   CheckCircle2,
   Clock3,
@@ -54,14 +54,18 @@ export function RoutePlannerPage({
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const initializedSelection = useRef(false);
   useEffect(() => {
     if (!driverId && drivers[0]) setDriverId(drivers[0].id);
   }, [driverId, drivers]);
   useEffect(() => {
+    const seedSelection =
+      !initializedSelection.current && candidates.length > 0;
+    if (seedSelection) initializedSelection.current = true;
     setSelected((current) =>
-      current.length
-        ? current.filter((id) => candidates.some((order) => order.id === id))
-        : candidates.slice(0, 6).map((order) => order.id),
+      seedSelection
+        ? candidates.slice(0, 6).map((order) => order.id)
+        : current.filter((id) => candidates.some((order) => order.id === id)),
     );
   }, [candidates]);
   const driver = drivers.find((item) => item.id === driverId);
@@ -198,7 +202,8 @@ export function RoutePlannerPage({
             </button>
           </div>
           <small className="route-edit-hint">
-            Drag selected stops to set the preferred sequence before optimizing.
+            Drag selected stops to reorder. With a checkbox focused, use Alt + ↑
+            / ↓.
           </small>
           {orderedCandidates.map((order) => (
             <label
@@ -219,6 +224,19 @@ export function RoutePlannerPage({
               <GripVertical className="drag-handle" aria-hidden="true" />
               <input
                 type="checkbox"
+                aria-label={`Include ${order.trackingCode} in route`}
+                onKeyDown={(event) => {
+                  if (
+                    !event.altKey ||
+                    !["ArrowUp", "ArrowDown"].includes(event.key)
+                  )
+                    return;
+                  event.preventDefault();
+                  const index = selected.indexOf(order.id);
+                  const target =
+                    selected[index + (event.key === "ArrowUp" ? -1 : 1)];
+                  if (index >= 0 && target) reorderSelected(order.id, target);
+                }}
                 checked={selected.includes(order.id)}
                 onChange={() => {
                   setSelected((items) =>
@@ -329,6 +347,28 @@ export function RoutePlannerPage({
                     aria-label="Drag to reorder stop"
                   />
                   <CheckCircle2 />
+                  <div className="stop-move-actions">
+                    <button
+                      type="button"
+                      disabled={index === 0}
+                      aria-label={`Move ${stop.label} up`}
+                      onClick={() =>
+                        reorderPlan(stop.id, planStops[index - 1].id)
+                      }
+                    >
+                      ↑
+                    </button>
+                    <button
+                      type="button"
+                      disabled={index === planStops.length - 1}
+                      aria-label={`Move ${stop.label} down`}
+                      onClick={() =>
+                        reorderPlan(stop.id, planStops[index + 1].id)
+                      }
+                    >
+                      ↓
+                    </button>
+                  </div>
                 </li>
               ))}
             </ol>

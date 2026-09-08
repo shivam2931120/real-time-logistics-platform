@@ -33,23 +33,52 @@ export function ParcelScannerPage({
   const [cameraOpen, setCameraOpen] = useState(false);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [loadingHistory, setLoadingHistory] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const selected = available.find((order) => order.id === orderId);
 
   useEffect(() => {
-    if (!orderId && available[0]) setOrderId(available[0].id);
+    if (!available.some((order) => order.id === orderId))
+      setOrderId(available[0]?.id || "");
   }, [available, orderId]);
   useEffect(() => {
-    if (!selected) return;
+    let active = true;
+    setHistory([]);
+    setSaved("");
+    setError("");
+    if (!selected) {
+      setLoadingHistory(false);
+      return;
+    }
+    setLoadingHistory(true);
     setCode(selected.parcelCode || selected.trackingCode);
     void api
       .scans(selected.id)
-      .then(setHistory)
-      .catch(() => setHistory([]));
-  }, [selected]);
+      .then((items) => {
+        if (active) setHistory(items);
+      })
+      .catch(() => {
+        if (active)
+          setError(
+            "Unable to load scan history. Select the delivery again to retry.",
+          );
+      })
+      .finally(() => {
+        if (active) setLoadingHistory(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [selected?.id]);
   useEffect(() => {
-    if (!cameraOpen || !navigator.mediaDevices?.getUserMedia) return;
+    if (!cameraOpen) return;
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setError("Camera unavailable. Enter the parcel code manually.");
+      setCameraOpen(false);
+      return;
+    }
     let cancelled = false;
     void navigator.mediaDevices
       .getUserMedia({ video: { facingMode: "environment" } })
@@ -69,27 +98,25 @@ export function ParcelScannerPage({
         ).BarcodeDetector;
         if (!BarcodeDetectorCtor || !videoRef.current) return;
         const detector = new BarcodeDetectorCtor();
-        let active = true;
         const detect = async () => {
-          if (!active || !videoRef.current) return;
+          if (cancelled || !videoRef.current) return;
           try {
             const [result] = await detector.detect(videoRef.current);
-            if (result?.rawValue) setCode(result.rawValue);
+            if (!cancelled && result?.rawValue) setCode(result.rawValue);
           } catch {
             // A frame can be undecodable while the camera is starting.
           }
-          if (active) window.requestAnimationFrame(() => void detect());
+          if (!cancelled) window.requestAnimationFrame(() => void detect());
         };
         void detect();
-        return () => {
-          active = false;
-        };
       })
-      .catch(() =>
+      .catch(() => {
+        if (cancelled) return;
+        setCameraOpen(false);
         setError(
           "Camera permission was not granted; enter the parcel code manually.",
-        ),
-      );
+        );
+      });
     return () => {
       cancelled = true;
       streamRef.current?.getTracks().forEach((track) => track.stop());
@@ -98,7 +125,8 @@ export function ParcelScannerPage({
   }, [cameraOpen]);
   const submit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!selected) return;
+    if (!selected || busy || loadingHistory) return;
+    setBusy(true);
     setError("");
     setSaved("");
     try {
@@ -108,10 +136,13 @@ export function ParcelScannerPage({
         ...items.filter((item) => item.stage !== scan.stage),
       ]);
       setSaved(`${stage[0].toUpperCase()}${stage.slice(1)} scan recorded`);
+      setCameraOpen(false);
     } catch (reason) {
       setError(
         reason instanceof Error ? reason.message : "Unable to record scan",
       );
+    } finally {
+      setBusy(false);
     }
   };
   return (
@@ -148,6 +179,7 @@ export function ParcelScannerPage({
                 Delivery
                 <select
                   value={orderId}
+                  disabled={busy}
                   onChange={(event) => setOrderId(event.target.value)}
                 >
                   {available.map((order) => (
@@ -161,6 +193,7 @@ export function ParcelScannerPage({
                 Scan stage
                 <select
                   value={stage}
+                  disabled={busy}
                   onChange={(event) =>
                     setStage(event.target.value as ParcelScanStage)
                   }
@@ -201,14 +234,22 @@ export function ParcelScannerPage({
                   </>
                 )}
               </div>
-              {error && <p className="error">{error}</p>}
+              {error && (
+                <p className="error" role="alert">
+                  {error}
+                </p>
+              )}
               {saved && (
-                <p className="success-message">
+                <p className="success-message" role="status">
                   <CheckCircle2 /> {saved}
                 </p>
               )}
-              <button className="button primary full" type="submit">
-                <ScanLine /> Record scan
+              <button
+                className="button primary full"
+                type="submit"
+                disabled={busy || loadingHistory}
+              >
+                <ScanLine /> {busy ? "Recording…" : "Record scan"}
               </button>
             </>
           )}
@@ -221,7 +262,9 @@ export function ParcelScannerPage({
             </div>
             <span className="technical-badge">{history.length} EVENTS</span>
           </div>
-          {history.length ? (
+          {loadingHistory ? (
+            <p role="status">Loading scan history…</p>
+          ) : history.length ? (
             <ol className="scan-list">
               {history.map((scan) => (
                 <li key={scan.id}>

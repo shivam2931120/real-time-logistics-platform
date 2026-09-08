@@ -5,7 +5,6 @@ import {
   ChevronRight,
   LogOut,
   MapPinned,
-  Navigation,
   PackageCheck,
   Radio,
   Route,
@@ -53,7 +52,7 @@ export function DriverWorkspace({
   const [scanner, setScanner] = useState(false);
   useEffect(() => {
     if (!sharing) return;
-    const socket = io(api.base, { auth: { token: api.token() } });
+    const socket = io(api.base, { auth: api.socketAuth });
     const send = () =>
       navigator.geolocation?.getCurrentPosition((position) =>
         socket.emit("location:update", {
@@ -297,12 +296,9 @@ function DriverHeader({ logout }: { logout: () => void }) {
   return (
     <header>
       <div className="brand">
-        <span className="brand-mark">
-          <Navigation />
-        </span>
-        RoutePulse
+        <img className="brand-logo" src="/logo.png" alt="RoutePulse" />
       </div>
-      <button className="icon-btn" onClick={logout}>
+      <button className="icon-btn" aria-label="Sign out" onClick={logout}>
         <LogOut />
       </button>
     </header>

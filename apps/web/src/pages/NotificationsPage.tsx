@@ -1,23 +1,46 @@
 import { useEffect, useState } from "react";
-import { Bell, CheckCheck, Mail } from "lucide-react";
+import { Bell, CheckCheck, Mail, RefreshCw } from "lucide-react";
 import type { NotificationRecord } from "@routepulse/shared";
 import { api } from "../lib/api";
 
 export function NotificationsPage() {
   const [items, setItems] = useState<NotificationRecord[]>([]);
   const [error, setError] = useState("");
-  const load = () =>
-    api
-      .notifications()
-      .then(setItems)
-      .catch((reason) => setError((reason as Error).message));
+  const [loading, setLoading] = useState(true);
+  const [reading, setReading] = useState("");
+  const load = async () => {
+    setLoading(true);
+    setError("");
+    try {
+      setItems(await api.notifications());
+    } catch (reason) {
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : "Unable to load notifications",
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
   useEffect(() => {
     void load();
   }, []);
   const read = async (item: NotificationRecord) => {
-    if (item.readAt) return;
-    await api.readNotification(item.id);
-    await load();
+    if (item.readAt || reading) return;
+    setReading(item.id);
+    try {
+      await api.readNotification(item.id);
+      await load();
+    } catch (reason) {
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : "Unable to mark notification as read",
+      );
+    } finally {
+      setReading("");
+    }
   };
   return (
     <section className="panel notifications-page">
@@ -28,12 +51,27 @@ export function NotificationsPage() {
         </div>
         <Bell />
       </div>
-      {error && <p className="error">{error}</p>}
+      {error && (
+        <div className="inline-retry" role="alert">
+          <span>{error}</span>
+          <button onClick={() => void load()}>
+            <RefreshCw /> Retry
+          </button>
+        </div>
+      )}
       <div className="notification-list">
+        {loading && !items.length && (
+          <div className="list-skeleton" aria-label="Loading notifications">
+            <i />
+            <i />
+            <i />
+          </div>
+        )}
         {items.map((item) => (
           <button
             className={item.readAt ? "read" : ""}
             key={item.id}
+            disabled={Boolean(reading)}
             onClick={() => void read(item)}
           >
             <span>{item.channel === "email" ? <Mail /> : <Bell />}</span>
@@ -47,7 +85,7 @@ export function NotificationsPage() {
             {item.readAt ? <CheckCheck /> : <i />}
           </button>
         ))}
-        {!items.length && (
+        {!loading && !items.length && !error && (
           <div className="empty-state">
             <Bell />
             <strong>No notifications yet</strong>
