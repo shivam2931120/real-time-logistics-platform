@@ -16,4 +16,4 @@ services:
       - key: JWT_SECRET
         generateValue: true
       - key: WEB_ORIGIN
-        value: http://localhost:5173,http://127.0.0.1:5173
+        value: https://routepulse.justshivamm.in,https://real-time-logistics-platform.vercel.app,http://localhost:5173,http://127.0.0.1:5173
