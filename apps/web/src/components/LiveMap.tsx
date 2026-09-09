@@ -16,6 +16,11 @@ import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import type { Driver, Order } from "@routepulse/shared";
 import { api, type MapSearchResult } from "../lib/api";
+import {
+  readCurrentLocation,
+  watchLocation,
+  type LocationReading,
+} from "../lib/geolocation";
 
 type Point = { lat: number; lng: number };
 type Props = {
@@ -29,6 +34,7 @@ type Props = {
   onDriverSelect?: (driver: Driver) => void;
 };
 const FALLBACK_STYLE = "https://tiles.openfreemap.org/styles/liberty";
+const DEFAULT_MAP_CENTER: [number, number] = [77.606, 12.961];
 const STALE_AFTER_MS = 2 * 60_000;
 const activeOrder = (order: Order) =>
   !["delivered", "cancelled", "failed"].includes(order.status);
@@ -84,6 +90,8 @@ export function LiveMap({
   const mapRef = useRef<maplibregl.Map | null>(null);
   const markersRef = useRef<maplibregl.Marker[]>([]);
   const userMarkerRef = useRef<maplibregl.Marker | null>(null);
+  const locationWatchRef = useRef<number | null>(null);
+  const autoLocatedRef = useRef(false);
   const searchMarkerRef = useRef<maplibregl.Marker | null>(null);
   const trailsRef = useRef<Record<string, Array<[number, number]>>>({});
   const lastTrailPointRef = useRef<Record<string, string>>({});
@@ -94,8 +102,13 @@ export function LiveMap({
   const [mapError, setMapError] = useState("");
   const [mapAttempt, setMapAttempt] = useState(0);
   const [locationState, setLocationState] = useState<
-    "idle" | "locating" | "denied"
+    "idle" | "locating" | "ready" | "error"
   >("idle");
+  const [locationAccuracy, setLocationAccuracy] = useState<number | null>(null);
+  const [locationUpdatedAt, setLocationUpdatedAt] = useState<number | null>(
+    null,
+  );
+  const [locationMessage, setLocationMessage] = useState("");
   const [showDrivers, setShowDrivers] = useState(true);
   const [showStops, setShowStops] = useState(true);
   const [showRoutes, setShowRoutes] = useState(true);
@@ -120,6 +133,80 @@ export function LiveMap({
         .join("|"),
     [activeOrders],
   );
+
+  const renderUserLocation = useCallback(
+    (reading: LocationReading, recenter: boolean) => {
+      const map = mapRef.current;
+      if (!map) return;
+      const point: [number, number] = [reading.lng, reading.lat];
+      if (!userMarkerRef.current) {
+        const element = document.createElement("div");
+        element.className = "user-location-marker";
+        element.setAttribute("aria-label", "Your current location");
+        userMarkerRef.current = new maplibregl.Marker({ element }).addTo(map);
+      }
+      userMarkerRef.current.setLngLat(point);
+      const accuracySource = map.getSource("user-location-accuracy") as
+        | maplibregl.GeoJSONSource
+        | undefined;
+      accuracySource?.setData({
+        type: "FeatureCollection",
+        features: [
+          {
+            type: "Feature",
+            properties: {},
+            geometry: {
+              type: "Polygon",
+              coordinates: [
+                circleRing(
+                  { lat: reading.lat, lng: reading.lng },
+                  Math.min(Math.max(reading.accuracy, 10), 100_000),
+                ),
+              ],
+            },
+          },
+        ],
+      });
+      if (recenter) map.flyTo({ center: point, zoom: 15, duration: 700 });
+    },
+    [],
+  );
+
+  const applyLocation = useCallback(
+    (reading: LocationReading, recenter: boolean) => {
+      renderUserLocation(reading, recenter);
+      setLocationAccuracy(reading.accuracy);
+      setLocationUpdatedAt(reading.timestamp);
+      setLocationMessage("");
+      setLocationState("ready");
+    },
+    [renderUserLocation],
+  );
+
+  const reportLocationError = useCallback((message: string) => {
+    setLocationState("error");
+    setLocationMessage(message);
+  }, []);
+
+  const locate = useCallback(() => {
+    setLocationState("locating");
+    setLocationMessage("");
+    void readCurrentLocation()
+      .then((reading) => {
+        applyLocation(reading, true);
+        if (locationWatchRef.current === null) {
+          locationWatchRef.current = watchLocation(
+            (nextReading) => applyLocation(nextReading, false),
+            reportLocationError,
+          );
+        }
+      })
+      .catch((error: unknown) => {
+        reportLocationError(
+          error instanceof Error ? error.message : "Location lookup failed.",
+        );
+      });
+  }, [applyLocation, reportLocationError]);
 
   useEffect(() => {
     ordersRef.current = orders;
@@ -183,7 +270,7 @@ export function LiveMap({
       ),
     ];
     if (!coordinates.length)
-      return map.easeTo({ center: [77.606, 12.961], zoom: 11.5 });
+      return map.easeTo({ center: DEFAULT_MAP_CENTER, zoom: 11.5 });
     const bounds = coordinates.reduce(
       (value, point) => value.extend(point),
       new maplibregl.LngLatBounds(coordinates[0], coordinates[0]),
@@ -201,7 +288,7 @@ export function LiveMap({
       map = new maplibregl.Map({
         container: containerRef.current,
         style: import.meta.env.VITE_MAP_STYLE || FALLBACK_STYLE,
-        center: [77.606, 12.961],
+        center: DEFAULT_MAP_CENTER,
         zoom: 11.5,
         attributionControl: false,
       });
@@ -232,6 +319,30 @@ export function LiveMap({
       map.addSource("geofences", {
         type: "geojson",
         data: { type: "FeatureCollection", features: [] },
+      });
+      map.addSource("user-location-accuracy", {
+        type: "geojson",
+        data: {
+          type: "FeatureCollection",
+          features: [],
+        },
+      });
+      map.addLayer({
+        id: "user-location-accuracy-fill",
+        type: "fill",
+        source: "user-location-accuracy",
+        paint: { "fill-color": "#06b6d4", "fill-opacity": 0.1 },
+      });
+      map.addLayer({
+        id: "user-location-accuracy-line",
+        type: "line",
+        source: "user-location-accuracy",
+        paint: {
+          "line-color": "#06b6d4",
+          "line-width": 1.5,
+          "line-opacity": 0.55,
+          "line-dasharray": [2, 2],
+        },
       });
       map.addLayer({
         id: "geofence-fill",
@@ -425,6 +536,29 @@ export function LiveMap({
       mapRef.current = null;
     };
   }, [mapAttempt]);
+
+  useEffect(() => {
+    if (!loaded || autoLocatedRef.current || !navigator.permissions) return;
+    autoLocatedRef.current = true;
+    void navigator.permissions
+      .query({ name: "geolocation" })
+      .then((permission) => {
+        if (permission.state === "granted") locate();
+      })
+      .catch(() => {
+        // The user can always opt in explicitly with the My location control.
+      });
+  }, [loaded, locate]);
+
+  useEffect(
+    () => () => {
+      if (locationWatchRef.current !== null && navigator.geolocation) {
+        navigator.geolocation.clearWatch(locationWatchRef.current);
+      }
+      locationWatchRef.current = null;
+    },
+    [],
+  );
 
   useEffect(() => {
     const map = mapRef.current;
@@ -694,32 +828,6 @@ export function LiveMap({
       map.flyTo({ center: [point.lng, point.lat], zoom: 13.5, duration: 500 });
   }, [activeOrders, drivers, loaded, selectedDriverId, selectedOrderId]);
 
-  const locate = () => {
-    if (!navigator.geolocation) return setLocationState("denied");
-    setLocationState("locating");
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const map = mapRef.current;
-        if (!map) return;
-        const point: [number, number] = [
-          position.coords.longitude,
-          position.coords.latitude,
-        ];
-        if (!userMarkerRef.current) {
-          const element = document.createElement("div");
-          element.className = "user-location-marker";
-          userMarkerRef.current = new maplibregl.Marker({ element })
-            .setLngLat(point)
-            .addTo(map);
-        } else userMarkerRef.current.setLngLat(point);
-        map.flyTo({ center: point, zoom: 14.5 });
-        setLocationState("idle");
-      },
-      () => setLocationState("denied"),
-      { enableHighAccuracy: true, timeout: 10_000 },
-    );
-  };
-
   const search = async () => {
     if (searchQuery.trim().length < 3) return;
     setSearching(true);
@@ -770,6 +878,17 @@ export function LiveMap({
       inside,
     };
   }, [activeOrders, clock, drivers, geofenceRadiusMeters]);
+  const locationAccuracyLabel = locationAccuracy
+    ? locationAccuracy >= 1000
+      ? `±${(locationAccuracy / 1000).toFixed(1)} km`
+      : `±${Math.round(locationAccuracy)} m`
+    : "";
+  const locationStatusLabel =
+    locationState === "ready"
+      ? `GPS ${locationAccuracyLabel}`
+      : locationState === "locating"
+        ? "Locating…"
+        : "My location";
 
   return (
     <div className="map-stage">
@@ -877,9 +996,14 @@ export function LiveMap({
         >
           <History /> Trails
         </button>
-        <button type="button" onClick={locate} title="Show my location">
+        <button
+          type="button"
+          onClick={locate}
+          disabled={locationState === "locating"}
+          title="Use a fresh, high-accuracy GPS reading"
+        >
           <LocateFixed />{" "}
-          {locationState === "locating" ? "Locating…" : "My location"}
+          {locationStatusLabel}
         </button>
       </div>
       <div className="map-telemetry" aria-label="Live map status">
@@ -916,9 +1040,16 @@ export function LiveMap({
           </button>
         </div>
       )}
-      {locationState === "denied" && (
+      {locationState === "error" && (
         <div className="map-notice">
-          Location access is unavailable. Enable it in your browser and retry.
+          {locationMessage || "Location access is unavailable."} Use the browser
+          address-bar permission control, then retry.
+        </div>
+      )}
+      {locationState === "ready" && locationUpdatedAt && (
+        <div className="map-location-status" role="status">
+          <LocateFixed /> Current device location · {locationAccuracyLabel} ·
+          updated {new Date(locationUpdatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
         </div>
       )}
       {loaded && !Object.keys(roadRoutes).length && activeOrders.length > 0 && (

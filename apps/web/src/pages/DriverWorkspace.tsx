@@ -18,6 +18,7 @@ import type {
   User,
 } from "@routepulse/shared";
 import { api } from "../lib/api";
+import { watchLocation } from "../lib/geolocation";
 import { LiveMap } from "../components/LiveMap";
 
 const next: Partial<Record<OrderStatus, OrderStatus>> = {
@@ -46,24 +47,35 @@ export function DriverWorkspace({
     (order) => !["delivered", "failed", "cancelled"].includes(order.status),
   );
   const [sharing, setSharing] = useState(false);
+  const [locationError, setLocationError] = useState("");
   const [proof, setProof] = useState(false);
   const [issue, setIssue] = useState(false);
   const [error, setError] = useState("");
   const [scanner, setScanner] = useState(false);
   useEffect(() => {
-    if (!sharing) return;
+    if (!sharing) {
+      setLocationError("");
+      return;
+    }
     const socket = io(api.base, { auth: api.socketAuth });
-    const send = () =>
-      navigator.geolocation?.getCurrentPosition((position) =>
+    let stopped = false;
+    const watchId = watchLocation(
+      (position) => {
+        if (stopped) return;
         socket.emit("location:update", {
-          lat: position.coords.latitude,
-          lng: position.coords.longitude,
-        }),
-      );
-    send();
-    const id = setInterval(send, 5000);
+          lat: position.lat,
+          lng: position.lng,
+        });
+        setLocationError("");
+      },
+      (message) => {
+        if (!stopped) setLocationError(message);
+      },
+    );
     return () => {
-      clearInterval(id);
+      stopped = true;
+      if (watchId !== null && navigator.geolocation)
+        navigator.geolocation.clearWatch(watchId);
       socket.close();
     };
   }, [sharing]);
@@ -106,6 +118,9 @@ export function DriverWorkspace({
             <Radio />
             {sharing ? "Location sharing on" : "Start location sharing"}
           </button>
+          {locationError && (
+            <p className="inline-notice warning">{locationError}</p>
+          )}
           <a
             className="share"
             target="_blank"

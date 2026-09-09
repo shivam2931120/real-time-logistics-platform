@@ -40,6 +40,7 @@ import type { LucideIcon } from "lucide-react";
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis } from "recharts";
 import { io } from "socket.io-client";
 import { ApiError, api } from "./lib/api";
+import { watchLocation } from "./lib/geolocation";
 import { LiveMap } from "./components/LiveMap";
 import { CreateOrder } from "./components/CreateOrder";
 import { DeliveriesPage } from "./pages/DeliveriesPage";
@@ -1501,20 +1502,31 @@ function DriverView({
     (o) => !["delivered", "failed", "cancelled"].includes(o.status),
   );
   const [sharing, setSharing] = useState(false);
+  const [locationError, setLocationError] = useState("");
   useEffect(() => {
-    if (!sharing) return;
+    if (!sharing) {
+      setLocationError("");
+      return;
+    }
     const socket = io(api.base, { auth: api.socketAuth });
-    const send = () =>
-      navigator.geolocation?.getCurrentPosition((p) =>
+    let stopped = false;
+    const watchId = watchLocation(
+      (position) => {
+        if (stopped) return;
         socket.emit("location:update", {
-          lat: p.coords.latitude,
-          lng: p.coords.longitude,
-        }),
-      );
-    send();
-    const id = setInterval(send, 5000);
+          lat: position.lat,
+          lng: position.lng,
+        });
+        setLocationError("");
+      },
+      (message) => {
+        if (!stopped) setLocationError(message);
+      },
+    );
     return () => {
-      clearInterval(id);
+      stopped = true;
+      if (watchId !== null && navigator.geolocation)
+        navigator.geolocation.clearWatch(watchId);
       socket.close();
     };
   }, [sharing]);
@@ -1539,6 +1551,7 @@ function DriverView({
           <Radio />
           {sharing ? "Location sharing on" : "Start location sharing"}
         </button>
+        {locationError && <p className="inline-notice warning">{locationError}</p>}
       </section>
       {active ? (
         <>
