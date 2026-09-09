@@ -56,6 +56,20 @@ describe("API", () => {
       expect(response.headers["access-control-allow-origin"]).toBe(origin);
     }
   });
+  it("allows the hosted RoutePulse frontends", async () => {
+    for (const origin of [
+      "https://routepulse.justshivamm.in",
+      "https://real-time-logistics-platform.vercel.app",
+    ]) {
+      const response = await request(app)
+        .options("/api/auth/demo")
+        .set("origin", origin)
+        .set("access-control-request-method", "POST")
+        .set("access-control-request-headers", "authorization,content-type");
+      expect(response.status).toBe(204);
+      expect(response.headers["access-control-allow-origin"]).toBe(origin);
+    }
+  });
   it("rejects private access without a session", async () => {
     expect((await request(app).get("/api/orders")).status).toBe(401);
   });
