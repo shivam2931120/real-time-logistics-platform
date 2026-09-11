@@ -36,7 +36,7 @@ describe("AuthPage", () => {
     fireEvent.click(view.getAllByRole("button", { name: /Use credentials/ })[2]);
 
     expect(view.getByLabelText("Email address")).toHaveValue(
-      "demo.driver@routepulse.justshivamm.in",
+      "chieftainofthedunedain.bgp+routepulse.driver@gmail.com",
     );
     expect(view.getByRole("status")).toHaveTextContent("Driver demo credentials loaded");
   });

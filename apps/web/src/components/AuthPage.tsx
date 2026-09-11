@@ -7,22 +7,22 @@ type SignInCodeFactor = "first" | "second";
 const demoCredentials = [
   {
     role: "Admin",
-    email: "demo.admin@routepulse.justshivamm.in",
+    email: "chieftainofthedunedain.bgp+routepulse.admin@gmail.com",
     password: "RoutePulseDemo!Admin2026",
   },
   {
     role: "Dispatcher",
-    email: "demo.dispatcher@routepulse.justshivamm.in",
+    email: "chieftainofthedunedain.bgp+routepulse.dispatcher@gmail.com",
     password: "RoutePulseDemo!Dispatch2026",
   },
   {
     role: "Driver",
-    email: "demo.driver@routepulse.justshivamm.in",
+    email: "chieftainofthedunedain.bgp+routepulse.driver@gmail.com",
     password: "RoutePulseDemo!Driver2026",
   },
   {
     role: "Customer",
-    email: "demo.customer@routepulse.justshivamm.in",
+    email: "chieftainofthedunedain.bgp+routepulse.customer@gmail.com",
     password: "RoutePulseDemo!Customer2026",
   },
 ] as const;
@@ -261,7 +261,7 @@ export default function AuthPage() {
                 </div>
                 <span className="technical-badge">DEMO</span>
               </div>
-              <p>These accounts are for exploring the RoutePulse interface only.</p>
+              <p>These accounts are for exploring the RoutePulse interface only. If Clerk requests a device code, it is sent to the configured demo mailbox.</p>
               <div className="demo-credential-list">
                 {demoCredentials.map((credential) => (
                   <button
