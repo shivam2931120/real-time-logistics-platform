@@ -3,6 +3,7 @@ import { useSignIn, useSignUp } from "@clerk/clerk-react";
 
 type AuthMode = "sign-in" | "sign-up";
 type SignInStep = "identifier" | "password" | "code";
+type SignInCodeFactor = "first" | "second";
 const demoCredentials = [
   {
     role: "Admin",
@@ -59,6 +60,7 @@ export default function AuthPage() {
   const [code, setCode] = useState("");
   const [verificationPending, setVerificationPending] = useState(false);
   const [signInStep, setSignInStep] = useState<SignInStep>("identifier");
+  const [signInCodeFactor, setSignInCodeFactor] = useState<SignInCodeFactor>("first");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -70,6 +72,7 @@ export default function AuthPage() {
     setNotice("");
     setVerificationPending(false);
     setSignInStep("identifier");
+    setSignInCodeFactor("first");
     setCode("");
   };
 
@@ -79,6 +82,7 @@ export default function AuthPage() {
     setEmail(credential.email);
     setPassword(credential.password);
     setSignInStep("identifier");
+    setSignInCodeFactor("first");
     setVerificationPending(false);
     setCode("");
     setError("");
@@ -97,7 +101,9 @@ export default function AuthPage() {
           ? await signIn.create({ identifier: email.trim() })
           : signInStep === "password"
             ? await signIn.attemptFirstFactor({ strategy: "password", password })
-            : await signIn.attemptFirstFactor({ strategy: "email_code", code: code.trim() });
+            : signInCodeFactor === "second"
+              ? await signIn.attemptSecondFactor({ strategy: "email_code", code: code.trim() })
+              : await signIn.attemptFirstFactor({ strategy: "email_code", code: code.trim() });
         if (result.status === "complete" && result.createdSessionId) {
           await setActiveSignIn({ session: result.createdSessionId });
         } else if (signInStep === "identifier") {
@@ -115,6 +121,22 @@ export default function AuthPage() {
               throw new Error("This account does not have a supported sign-in method. Contact an administrator.");
             }
           }
+        } else if (
+          signInStep === "password" &&
+          (result.status === "needs_second_factor" || (result.status as string) === "needs_client_trust")
+        ) {
+          const secondFactors = result.supportedSecondFactors ?? [];
+          const emailFactor = secondFactors.find((factor) => factor.strategy === "email_code");
+          if (!emailFactor) {
+            throw new Error("This account requires an authenticator or backup code. Use the Clerk sign-in options or contact an administrator.");
+          }
+          await signIn.prepareSecondFactor({
+            strategy: "email_code",
+            emailAddressId: emailFactor.emailAddressId,
+          });
+          setSignInCodeFactor("second");
+          setSignInStep("code");
+          setNotice("We sent a verification code to the account email address.");
         } else {
           throw new Error("Additional verification is required for this account. Use the Clerk sign-in options or contact an administrator.");
         }
