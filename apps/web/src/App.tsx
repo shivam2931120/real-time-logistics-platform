@@ -102,14 +102,6 @@ const viewDescriptions: Record<View, string> = {
   support: "Manage customer conversations and delivery questions",
   admin: "Configure access, operating rules and audit history",
 };
-const greeting = () => {
-  const hour = new Date().getHours();
-  return hour < 12
-    ? "Good morning"
-    : hour < 18
-      ? "Good afternoon"
-      : "Good evening";
-};
 const viewFromPath = (): View => {
   const value = window.location.pathname.replace(/^\//, "").split("/")[0];
   return [
@@ -178,7 +170,7 @@ function Login({ done }: { done: (u: User) => void }) {
           <span />
           <span />
           <span />
-          <small>LIVE NETWORK · BENGALURU</small>
+          <small>LIVE NETWORK</small>
         </div>
       </section>
       <section className="login-panel">
@@ -255,59 +247,76 @@ export default function App() {
     [commandQuery, setCommandQuery] = useState(""),
     [toast, setToast] = useState("");
   const loadedIdentity = useRef("");
-  const load = useCallback(async () => {
-    if (!api.token()) return setLoading(false);
-    setLoadError("");
-    try {
-      const me = await api.me();
-      const identity = `${me.organizationId}:${me.id}:${me.role}`;
-      if (loadedIdentity.current !== identity) {
-        loadedIdentity.current = identity;
-        setOrders([]);
-        setDrivers([]);
-        setAnalytics(null);
-        setOrganizationSettings(null);
-        setSelected(null);
-        setCreate(false);
-        setCommandOpen(false);
+  const loadInFlight = useRef<Promise<void> | null>(null);
+  const load = useCallback(() => {
+    if (loadInFlight.current) return loadInFlight.current;
+    const task = (async () => {
+      if (!api.token()) {
+        setLoading(false);
+        return;
       }
-      setUser(me);
-      const os = await api.orders();
-      setOrders(os);
-      if (me.role === "admin" || me.role === "dispatcher") {
-        const [driverResult, analyticsResult, settingsResult] =
-          await Promise.allSettled([
-            api.drivers(),
-            api.analytics(),
-            api.settings(),
-          ]);
-        if (driverResult.status === "fulfilled") setDrivers(driverResult.value);
-        if (analyticsResult.status === "fulfilled")
-          setAnalytics(analyticsResult.value);
-        if (settingsResult.status === "fulfilled")
-          setOrganizationSettings(settingsResult.value);
-        const failed = [driverResult, analyticsResult, settingsResult].filter(
-          (result) => result.status === "rejected",
-        ).length;
-        if (failed)
+      setLoadError("");
+      try {
+        const me = await api.me();
+        const identity = `${me.organizationId}:${me.id}:${me.role}`;
+        if (loadedIdentity.current !== identity) {
+          loadedIdentity.current = identity;
+          setOrders([]);
+          setDrivers([]);
+          setAnalytics(null);
+          setOrganizationSettings(null);
+          setSelected(null);
+          setCreate(false);
+          setCommandOpen(false);
+        }
+        setUser(me);
+        const os = await api.orders();
+        setOrders(os);
+        if (me.role === "admin" || me.role === "dispatcher") {
+          const [driverResult, analyticsResult, settingsResult] =
+            await Promise.allSettled([
+              api.drivers(),
+              api.analytics(),
+              api.settings(),
+            ]);
+          if (driverResult.status === "fulfilled") setDrivers(driverResult.value);
+          if (analyticsResult.status === "fulfilled")
+            setAnalytics(analyticsResult.value);
+          if (settingsResult.status === "fulfilled")
+            setOrganizationSettings(settingsResult.value);
+          const failed = [driverResult, analyticsResult, settingsResult].filter(
+            (result) => result.status === "rejected",
+          ).length;
+          if (failed)
+            setLoadError(
+              `${failed} workspace section${failed === 1 ? "" : "s"} could not refresh. Existing data is still available.`,
+            );
+        }
+      } catch (reason) {
+        if (reason instanceof ApiError && reason.status === 401) {
+          api.logout();
+          setUser(null);
+        } else {
           setLoadError(
-            `${failed} workspace section${failed === 1 ? "" : "s"} could not refresh. Existing data is still available.`,
+            reason instanceof Error
+              ? reason.message
+              : "Unable to refresh workspace data",
           );
+        }
+      } finally {
+        setLoading(false);
       }
-    } catch (reason) {
-      if (reason instanceof ApiError && reason.status === 401) {
-        api.logout();
-        setUser(null);
-      } else {
-        setLoadError(
-          reason instanceof Error
-            ? reason.message
-            : "Unable to refresh workspace data",
-        );
-      }
-    } finally {
-      setLoading(false);
-    }
+    })();
+    loadInFlight.current = task;
+    void task.then(
+      () => {
+        if (loadInFlight.current === task) loadInFlight.current = null;
+      },
+      () => {
+        if (loadInFlight.current === task) loadInFlight.current = null;
+      },
+    );
+    return task;
   }, []);
   useEffect(() => {
     load();
@@ -650,19 +659,9 @@ export default function App() {
             <Menu />
           </button>
           <div className="page-context">
-            <span className="eyebrow">
-              {new Intl.DateTimeFormat("en-IN", {
-                weekday: "long",
-                day: "2-digit",
-                month: "long",
-              }).format(new Date())}
-            </span>
             <h2>
-              {view === "overview"
-                ? `${greeting()}, ${user.name.split(" ")[0]}`
-                : (currentView?.label ?? "Workspace unavailable")}
+              {currentView?.label ?? "Workspace"}
             </h2>
-            <p>{currentView?.description}</p>
           </div>
           <div className="header-actions">
             <button

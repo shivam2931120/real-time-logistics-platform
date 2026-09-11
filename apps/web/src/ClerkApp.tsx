@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AuthenticateWithRedirectCallback, useAuth, useClerk } from "@clerk/clerk-react";
 import App from "./App";
 import AuthPage from "./components/AuthPage";
@@ -7,6 +7,7 @@ import { TrackingPage } from "./pages/TrackingPage";
 export default function ClerkApp() {
   const { isLoaded, isSignedIn, getToken } = useAuth();
   const { signOut } = useClerk();
+  const getTokenRef = useRef(getToken);
   const [ready, setReady] = useState(false),
     [error, setError] = useState(""),
     [attempt, setAttempt] = useState(0);
@@ -14,6 +15,9 @@ export default function ClerkApp() {
     window.location.pathname === "/track" ||
     window.location.pathname.startsWith("/track/");
   const oauthCallback = window.location.pathname === "/sso-callback";
+  useEffect(() => {
+    getTokenRef.current = getToken;
+  }, [getToken]);
   useEffect(() => {
     let cancelled = false;
     if (publicTracking || oauthCallback) {
@@ -30,10 +34,11 @@ export default function ClerkApp() {
     }
     setReady(false);
     setError("");
-    setTokenProvider((options) => getToken(options));
+    const tokenGetter = getTokenRef.current;
+    setTokenProvider((options) => tokenGetter(options));
     void (async () => {
       try {
-        const value = await getToken();
+        const value = await tokenGetter();
         if (!value) throw new Error("Clerk did not issue a session token");
         setToken(value);
         await api.me();
@@ -51,7 +56,7 @@ export default function ClerkApp() {
     return () => {
       cancelled = true;
     };
-  }, [attempt, getToken, isLoaded, isSignedIn, oauthCallback, publicTracking]);
+  }, [attempt, isLoaded, isSignedIn, oauthCallback, publicTracking]);
   if (publicTracking) return <TrackingPage />;
   if (oauthCallback) return <AuthenticateWithRedirectCallback />;
   if (!isLoaded) return <div className="splash">Loading secure workspace…</div>;

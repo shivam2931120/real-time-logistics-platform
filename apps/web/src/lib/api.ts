@@ -18,6 +18,7 @@ import type {
   User,
 } from "@routepulse/shared";
 const base = import.meta.env.VITE_API_URL || "http://127.0.0.1:4000";
+const REQUEST_TIMEOUT_MS = 20_000;
 let token = localStorage.getItem("routepulse_token") || "";
 type TokenProvider = (options?: { skipCache?: boolean }) => Promise<string | null>;
 let tokenProvider: TokenProvider | null = null;
@@ -46,14 +47,31 @@ async function request<T>(path: string, options: RequestInit = {}, canRefresh = 
       setToken("");
     }
   }
-  const res = await fetch(`${base}${path}`, {
-    ...options,
-    headers: {
-      "content-type": "application/json",
-      ...(token ? { authorization: `Bearer ${token}` } : {}),
-      ...options.headers,
-    },
-  });
+  const controller = new AbortController();
+  const externalSignal = options.signal;
+  const relayAbort = () => controller.abort();
+  if (externalSignal?.aborted) controller.abort();
+  else externalSignal?.addEventListener("abort", relayAbort, { once: true });
+  const timeout = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  let res: Response;
+  try {
+    res = await fetch(`${base}${path}`, {
+      ...options,
+      signal: controller.signal,
+      headers: {
+        "content-type": "application/json",
+        ...(token ? { authorization: `Bearer ${token}` } : {}),
+        ...options.headers,
+      },
+    });
+  } catch (error) {
+    if (controller.signal.aborted && !externalSignal?.aborted)
+      throw new ApiError("The API request timed out. Please retry.", 408);
+    throw error;
+  } finally {
+    window.clearTimeout(timeout);
+    externalSignal?.removeEventListener("abort", relayAbort);
+  }
   let body: { error?: string } | T;
   try {
     body = (await res.json()) as { error?: string } | T;
