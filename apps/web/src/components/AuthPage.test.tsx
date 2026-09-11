@@ -48,6 +48,7 @@ describe("AuthPage", () => {
     });
     const view = render(<AuthPage />);
     fireEvent.click(view.getAllByRole("button", { name: /Use credentials/ })[2]);
+    fireEvent.change(view.getByLabelText("Email address"), { target: { value: "driver@example.com" } });
     fireEvent.click(view.getByRole("button", { name: /^Continue$/ }));
 
     await waitFor(() =>
@@ -77,6 +78,7 @@ describe("AuthPage", () => {
 
     const view = render(<AuthPage />);
     fireEvent.click(view.getAllByRole("button", { name: /Use credentials/ })[2]);
+    fireEvent.change(view.getByLabelText("Email address"), { target: { value: "driver@example.com" } });
     fireEvent.click(view.getByRole("button", { name: /^Continue$/ }));
     await waitFor(() => expect(view.getByLabelText("Password")).toBeInTheDocument());
     fireEvent.click(view.getByRole("button", { name: /^Sign in$/ }));

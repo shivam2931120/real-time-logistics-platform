@@ -10,6 +10,7 @@ import {
 } from "../domain/store.js";
 import { persistDriver, persistDriverLocation, persistOrder } from "../db/persistence.js";
 import { resolveClerkUser } from "../services/clerkIdentity.js";
+import { demoAuthEnabled, demoUserForRole } from "../services/demoAuth.js";
 import { geofenceTransitions } from "../services/geofence.js";
 
 export function configureSockets(io: Server) {
@@ -27,6 +28,21 @@ export function configureSockets(io: Server) {
     }
     const token = String(socket.handshake.auth.token || "");
     if (process.env.AUTH_MODE === "clerk") {
+      if (demoAuthEnabled()) {
+        try {
+          const claims = jwt.verify(
+            token,
+            process.env.JWT_SECRET || "routepulse-local-development-only",
+            { issuer: "routepulse", audience: "routepulse-web" },
+          ) as jwt.JwtPayload;
+          if (claims.demo === true && typeof claims.role === "string") {
+            socket.data.user = demoUserForRole(claims.role as "admin" | "dispatcher" | "driver" | "customer");
+            return next();
+          }
+        } catch {
+          // Fall through to Clerk verification for normal sessions.
+        }
+      }
       void verifyToken(token, { secretKey: process.env.CLERK_SECRET_KEY })
         .then(resolveClerkUser)
         .then((user) => {

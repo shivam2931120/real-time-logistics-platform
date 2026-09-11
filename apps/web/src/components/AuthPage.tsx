@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { useSignIn, useSignUp } from "@clerk/clerk-react";
+import { api } from "../lib/api";
 
 type AuthMode = "sign-in" | "sign-up";
 type SignInStep = "identifier" | "password" | "code";
@@ -61,6 +62,7 @@ export default function AuthPage() {
   const [verificationPending, setVerificationPending] = useState(false);
   const [signInStep, setSignInStep] = useState<SignInStep>("identifier");
   const [signInCodeFactor, setSignInCodeFactor] = useState<SignInCodeFactor>("first");
+  const [demoRole, setDemoRole] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -73,6 +75,7 @@ export default function AuthPage() {
     setVerificationPending(false);
     setSignInStep("identifier");
     setSignInCodeFactor("first");
+    setDemoRole(null);
     setCode("");
   };
 
@@ -83,6 +86,7 @@ export default function AuthPage() {
     setPassword(credential.password);
     setSignInStep("identifier");
     setSignInCodeFactor("first");
+    setDemoRole(credential.role);
     setVerificationPending(false);
     setCode("");
     setError("");
@@ -96,6 +100,12 @@ export default function AuthPage() {
     setLoading(true);
     try {
       if (mode === "sign-in") {
+        if (demoRole) {
+          await api.demoLogin(email, password);
+          window.location.hash = "#/overview";
+          window.location.reload();
+          return;
+        }
         if (!signIn || !setActiveSignIn) throw new Error("Authentication is still loading");
         const result = signInStep === "identifier"
           ? await signIn.create({ identifier: email.trim() })
@@ -237,17 +247,17 @@ export default function AuthPage() {
               </div>
             )}
             {!isVerification && (
-              <label>Email address<input type="email" required value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" placeholder="you@company.com" /></label>
+              <label>Email address<input type="email" required value={email} onChange={(event) => { setEmail(event.target.value); setDemoRole(null); }} autoComplete="email" placeholder="you@company.com" /></label>
             )}
             {isVerification ? (
               <label>Verification code<input inputMode="numeric" pattern="[0-9]*" required value={code} onChange={(event) => setCode(event.target.value)} autoComplete="one-time-code" placeholder="000000" /></label>
             ) : mode === "sign-up" || needsSignInPassword ? (
-              <label>Password<input type="password" required minLength={8} value={password} onChange={(event) => setPassword(event.target.value)} autoComplete={mode === "sign-in" ? "current-password" : "new-password"} placeholder="At least 8 characters" /></label>
+              <label>Password<input type="password" required minLength={8} value={password} onChange={(event) => { setPassword(event.target.value); setDemoRole(null); }} autoComplete={mode === "sign-in" ? "current-password" : "new-password"} placeholder="At least 8 characters" /></label>
             ) : null}
             {error && <p className="auth-feedback auth-feedback-error" role="alert">{error}</p>}
             {notice && <p className="auth-feedback auth-feedback-notice" role="status">{notice}</p>}
             <button className="auth-submit" type="submit" disabled={!loaded || loading}>
-              {loading ? "Working…" : isVerification ? "Verify email" : needsSignInPassword ? "Sign in" : mode === "sign-in" ? "Continue" : "Create account"}
+              {loading ? "Working…" : isVerification ? "Verify email" : needsSignInPassword ? (demoRole ? "Enter demo workspace" : "Sign in") : mode === "sign-in" ? (demoRole ? "Enter demo workspace" : "Continue") : "Create account"}
               <span aria-hidden="true">→</span>
             </button>
           </form>
@@ -261,7 +271,7 @@ export default function AuthPage() {
                 </div>
                 <span className="technical-badge">DEMO</span>
               </div>
-              <p>These accounts are for exploring the RoutePulse interface only. If Clerk requests a device code, it is sent to the configured demo mailbox.</p>
+              <p>These sandbox credentials open a role workspace directly. No Clerk verification code is required.</p>
               <div className="demo-credential-list">
                 {demoCredentials.map((credential) => (
                   <button

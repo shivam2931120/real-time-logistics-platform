@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { AuthenticateWithRedirectCallback, useAuth, useClerk } from "@clerk/clerk-react";
 import App from "./App";
 import AuthPage from "./components/AuthPage";
-import { api, setToken, setTokenProvider } from "./lib/api";
+import { api, isDemoSession, setDemoSession, setToken, setTokenProvider } from "./lib/api";
 import { TrackingPage } from "./pages/TrackingPage";
 export default function ClerkApp() {
   const { isLoaded, isSignedIn, getToken } = useAuth();
@@ -11,10 +11,17 @@ export default function ClerkApp() {
   const [ready, setReady] = useState(false),
     [error, setError] = useState(""),
     [attempt, setAttempt] = useState(0);
+  const [, setDemoSessionVersion] = useState(0);
   const publicTracking =
     window.location.pathname === "/track" ||
     window.location.pathname.startsWith("/track/");
   const oauthCallback = window.location.pathname === "/sso-callback";
+  const demoSession = isDemoSession();
+  useEffect(() => {
+    const refresh = () => setDemoSessionVersion((value) => value + 1);
+    window.addEventListener("routepulse-demo-session", refresh);
+    return () => window.removeEventListener("routepulse-demo-session", refresh);
+  }, []);
   useEffect(() => {
     getTokenRef.current = getToken;
   }, [getToken]);
@@ -23,6 +30,24 @@ export default function ClerkApp() {
     if (publicTracking || oauthCallback) {
       setTokenProvider(null);
       return;
+    }
+    if (demoSession) {
+      setTokenProvider(null);
+      setReady(false);
+      setError("");
+      void (async () => {
+        try {
+          await api.me();
+          if (!cancelled) setReady(true);
+        } catch (reason) {
+          setDemoSession(false);
+          setToken("");
+          if (!cancelled) setError(reason instanceof Error ? reason.message : "Unable to authorize the demo workspace");
+        }
+      })();
+      return () => {
+        cancelled = true;
+      };
     }
     if (!isLoaded) return;
     if (!isSignedIn) {
@@ -56,9 +81,21 @@ export default function ClerkApp() {
     return () => {
       cancelled = true;
     };
-  }, [attempt, isLoaded, isSignedIn, oauthCallback, publicTracking]);
+  }, [attempt, demoSession, isLoaded, isSignedIn, oauthCallback, publicTracking]);
   if (publicTracking) return <TrackingPage />;
   if (oauthCallback) return <AuthenticateWithRedirectCallback />;
+  if (demoSession) {
+    if (error)
+      return (
+        <main className="splash auth-error" role="alert">
+          <h1>Demo workspace unavailable</h1>
+          <p>{error}</p>
+          <button className="button primary" onClick={() => { api.logout(); setError(""); }}>Return to sign in</button>
+        </main>
+      );
+    if (!ready) return <div className="splash">Opening demo workspace…</div>;
+    return <App key={api.token()} />;
+  }
   if (!isLoaded) return <div className="splash">Loading secure workspace…</div>;
   if (!isSignedIn)
     return (

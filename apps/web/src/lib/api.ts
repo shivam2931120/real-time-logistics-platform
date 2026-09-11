@@ -20,6 +20,7 @@ import type {
 const base = import.meta.env.VITE_API_URL || "http://127.0.0.1:4000";
 const REQUEST_TIMEOUT_MS = 20_000;
 let token = localStorage.getItem("routepulse_token") || "";
+let demoSession = localStorage.getItem("routepulse_demo_session") === "1";
 type TokenProvider = (options?: { skipCache?: boolean }) => Promise<string | null>;
 let tokenProvider: TokenProvider | null = null;
 export class ApiError extends Error {
@@ -36,6 +37,13 @@ export const setToken = (value: string) => {
   if (value) localStorage.setItem("routepulse_token", value);
   else localStorage.removeItem("routepulse_token");
 };
+export const setDemoSession = (value: boolean) => {
+  demoSession = value;
+  if (value) localStorage.setItem("routepulse_demo_session", "1");
+  else localStorage.removeItem("routepulse_demo_session");
+  window.dispatchEvent(new Event("routepulse-demo-session"));
+};
+export const isDemoSession = () => demoSession;
 export const setTokenProvider = (provider: TokenProvider | null) => {
   tokenProvider = provider;
 };
@@ -144,7 +152,19 @@ export const api = {
     setToken(data.token);
     return data.user;
   },
-  logout: () => setToken(""),
+  demoLogin: async (email: string, password: string) => {
+    const data = await request<{ token: string; user: User }>(
+      "/api/auth/demo",
+      { method: "POST", body: JSON.stringify({ email, password }) },
+    );
+    setDemoSession(true);
+    setToken(data.token);
+    return data.user;
+  },
+  logout: () => {
+    setDemoSession(false);
+    setToken("");
+  },
   me: () => request<User>("/api/me"),
   orders: () => request<Order[]>("/api/orders"),
   drivers: () => request<Driver[]>("/api/drivers"),

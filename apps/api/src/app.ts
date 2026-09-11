@@ -17,7 +17,7 @@ import {
   store,
   users,
 } from "./domain/store.js";
-import { authenticate, issueToken, permit } from "./http/auth.js";
+import { authenticate, issueDemoToken, issueToken, permit } from "./http/auth.js";
 import { haversineKm, optimizeRoute } from "./services/optimizer.js";
 import {
   createCheckout,
@@ -65,6 +65,7 @@ import type {
 } from "@routepulse/shared";
 import { allowedWebOrigins } from "./config/origins.js";
 import { roadRoute, searchPlaces } from "./services/mapGateway.js";
+import { demoAuthEnabled, demoUserFromCredentials } from "./services/demoAuth.js";
 
 const coordinate = z.object({
   label: z.string().min(3).max(160),
@@ -267,7 +268,7 @@ export function createApp() {
   app.get("/health", (_req, res) =>
     res.json({
       status: "ok",
-      auth: process.env.AUTH_MODE === "clerk" ? "clerk" : "demo",
+      auth: process.env.AUTH_MODE === "clerk" ? (demoAuthEnabled() ? "clerk+demo" : "clerk") : "demo",
       persistence: persistenceMode(),
       queue: notificationMode(),
       payment: paymentMode(),
@@ -298,15 +299,16 @@ export function createApp() {
     }
   });
   app.post("/api/auth/demo", (req, res) => {
-    if (process.env.AUTH_MODE === "clerk")
-      return res.status(404).json({ error: "Demo authentication is disabled" });
-    const parsed = z
-      .object({ role: z.enum(["admin", "dispatcher", "driver", "customer"]) })
-      .safeParse(req.body);
-    if (!parsed.success)
-      return res
-        .status(400)
-        .json({ error: "Invalid role", details: parsed.error.issues });
+    if (process.env.AUTH_MODE === "clerk") {
+      if (!demoAuthEnabled()) return res.status(404).json({ error: "Demo authentication is disabled" });
+      const parsed = z.object({ email: z.email(), password: z.string().min(8).max(128) }).safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ error: "Enter a valid demo email and password" });
+      const user = demoUserFromCredentials(parsed.data.email, parsed.data.password);
+      if (!user) return res.status(401).json({ error: "Invalid demo credentials" });
+      return res.json({ token: issueDemoToken(user), user });
+    }
+    const parsed = z.object({ role: z.enum(["admin", "dispatcher", "driver", "customer"]) }).safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: "Invalid role", details: parsed.error.issues });
     const user = users.find((u) => u.role === parsed.data.role)!;
     return res.json({ token: issueToken(user), user });
   });
