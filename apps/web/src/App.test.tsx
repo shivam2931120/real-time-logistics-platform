@@ -150,7 +150,7 @@ describe("RoutePulse entry", () => {
     const view = render(<App />);
     fireEvent.click(view.getByRole("button", { name: /Operations admin/i }));
     await waitFor(() =>
-      expect(view.getByText("Your fleet is moving.")).toBeInTheDocument(),
+      expect(view.getByText("Operations overview")).toBeInTheDocument(),
     );
     fireEvent.click(view.getByRole("button", { name: /Route planner/i }));
     expect(window.location.pathname).toBe("/routes");
