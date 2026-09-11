@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import type {
   AnalyticsSummary,
   Driver,
@@ -41,19 +41,19 @@ import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis } from "recharts";
 import { io } from "socket.io-client";
 import { ApiError, api } from "./lib/api";
 import { watchLocation } from "./lib/geolocation";
-import { LiveMap } from "./components/LiveMap";
-import { CreateOrder } from "./components/CreateOrder";
-import { DeliveriesPage } from "./pages/DeliveriesPage";
-import { FleetPage } from "./pages/FleetPage";
-import { RoutePlannerPage } from "./pages/RoutePlannerPage";
-import { AnalyticsPage } from "./pages/AnalyticsPage";
-import { DispatchPage } from "./pages/DispatchPage";
-import { ExceptionsPage } from "./pages/ExceptionsPage";
-import { NotificationsPage } from "./pages/NotificationsPage";
-import { AdminPage } from "./pages/AdminPage";
-import { DriverWorkspace } from "./pages/DriverWorkspace";
-import { ParcelScannerPage } from "./pages/ParcelScannerPage";
-import { SupportPage } from "./pages/SupportPage";
+const LiveMap = lazy(() => import("./components/LiveMap").then((module) => ({ default: module.LiveMap })));
+const CreateOrder = lazy(() => import("./components/CreateOrder").then((module) => ({ default: module.CreateOrder })));
+const DeliveriesPage = lazy(() => import("./pages/DeliveriesPage").then((module) => ({ default: module.DeliveriesPage })));
+const FleetPage = lazy(() => import("./pages/FleetPage").then((module) => ({ default: module.FleetPage })));
+const RoutePlannerPage = lazy(() => import("./pages/RoutePlannerPage").then((module) => ({ default: module.RoutePlannerPage })));
+const AnalyticsPage = lazy(() => import("./pages/AnalyticsPage").then((module) => ({ default: module.AnalyticsPage })));
+const DispatchPage = lazy(() => import("./pages/DispatchPage").then((module) => ({ default: module.DispatchPage })));
+const ExceptionsPage = lazy(() => import("./pages/ExceptionsPage").then((module) => ({ default: module.ExceptionsPage })));
+const NotificationsPage = lazy(() => import("./pages/NotificationsPage").then((module) => ({ default: module.NotificationsPage })));
+const AdminPage = lazy(() => import("./pages/AdminPage").then((module) => ({ default: module.AdminPage })));
+const DriverWorkspace = lazy(() => import("./pages/DriverWorkspace").then((module) => ({ default: module.DriverWorkspace })));
+const ParcelScannerPage = lazy(() => import("./pages/ParcelScannerPage").then((module) => ({ default: module.ParcelScannerPage })));
+const SupportPage = lazy(() => import("./pages/SupportPage").then((module) => ({ default: module.SupportPage })));
 import {
   CommandPalette,
   type CommandDestination,
@@ -217,6 +217,15 @@ function Login({ done }: { done: (u: User) => void }) {
         </div>
       </section>
     </main>
+  );
+}
+function ViewLoading({ label = "Loading workspace view…" }: { label?: string }) {
+  return (
+    <div className="view-loading" role="status" aria-live="polite">
+      <div className="loading-pulse" />
+      <strong>{label}</strong>
+      <span>Preparing the latest operational data.</span>
+    </div>
   );
 }
 function Status({ value }: { value: string }) {
@@ -427,27 +436,31 @@ export default function App() {
     );
   if (user.role === "driver")
     return (
-      <DriverWorkspace
-        user={user}
-        orders={orders}
-        reload={load}
-        logout={() => {
-          api.logout();
-          setUser(null);
-        }}
-      />
+      <Suspense fallback={<ViewLoading label="Loading driver workspace…" />}>
+        <DriverWorkspace
+          user={user}
+          orders={orders}
+          reload={load}
+          logout={() => {
+            api.logout();
+            setUser(null);
+          }}
+        />
+      </Suspense>
     );
   if (user.role === "customer")
     return (
-      <CustomerView
-        user={user}
-        orders={orders}
-        reload={load}
-        logout={() => {
-          api.logout();
-          setUser(null);
-        }}
-      />
+      <Suspense fallback={<ViewLoading label="Loading customer workspace…" />}>
+        <CustomerView
+          user={user}
+          orders={orders}
+          reload={load}
+          logout={() => {
+            api.logout();
+            setUser(null);
+          }}
+        />
+      </Suspense>
     );
   const nav: NavItem[] = [
     {
@@ -693,6 +706,7 @@ export default function App() {
           </div>
         </header>
         <main>
+          <Suspense fallback={<ViewLoading />}>
           {loadError && (
             <div className="workspace-notice" role="alert">
               <AlertTriangle />
@@ -1012,16 +1026,19 @@ export default function App() {
               </button>
             </section>
           )}
+          </Suspense>
         </main>
       </div>
       {create && (
-        <CreateOrder
-          close={() => setCreate(false)}
-          saved={() => {
-            void load();
-            setToast("Delivery created and ready for dispatch");
-          }}
-        />
+        <Suspense fallback={<ViewLoading label="Loading delivery form…" />}>
+          <CreateOrder
+            close={() => setCreate(false)}
+            saved={() => {
+              void load();
+              setToast("Delivery created and ready for dispatch");
+            }}
+          />
+        </Suspense>
       )}{" "}
       {selected && (
         <OrderDrawer
@@ -1157,6 +1174,8 @@ function OrderDrawer({
   const [selfService, setSelfService] = useState(false);
   const [selfServiceError, setSelfServiceError] = useState("");
   const [copyMessage, setCopyMessage] = useState("");
+  const [actionBusy, setActionBusy] = useState<"cancel" | "reschedule" | "payment" | "">("");
+  const [paymentError, setPaymentError] = useState("");
   return (
     <div className="drawer-backdrop" onClick={close}>
       <aside className="drawer" onClick={(e) => e.stopPropagation()}>
@@ -1261,6 +1280,7 @@ function OrderDrawer({
             <div className="self-service-actions">
               <button
                 className="button ghost"
+                disabled={Boolean(actionBusy)}
                 onClick={() => setSelfService((value) => !value)}
               >
                 Reschedule
@@ -1268,21 +1288,26 @@ function OrderDrawer({
               {["pending", "assigned"].includes(order.status) && (
                 <button
                   className="button danger"
+                  disabled={Boolean(actionBusy)}
                   onClick={async () => {
                     if (!window.confirm("Cancel this delivery?")) return;
+                    setActionBusy("cancel");
+                    setSelfServiceError("");
                     try {
                       await api.cancelOrder(order.id);
-                      reload();
+                      await reload();
                     } catch (reason) {
                       setSelfServiceError(
                         reason instanceof Error
                           ? reason.message
                           : "Unable to cancel delivery",
                       );
+                    } finally {
+                      setActionBusy("");
                     }
                   }}
                 >
-                  Cancel delivery
+                  {actionBusy === "cancel" ? "Cancelling…" : "Cancel delivery"}
                 </button>
               )}
             </div>
@@ -1293,6 +1318,8 @@ function OrderDrawer({
             onSubmit={async (event) => {
               event.preventDefault();
               const form = new FormData(event.currentTarget);
+              setActionBusy("reschedule");
+              setSelfServiceError("");
               try {
                 await api.rescheduleOrder(order.id, {
                   deliveryWindowStart: new Date(
@@ -1301,13 +1328,15 @@ function OrderDrawer({
                   promisedAt: new Date(String(form.get("end"))).toISOString(),
                   deliveryNotes: String(form.get("notes") || "") || undefined,
                 });
-                reload();
+                await reload();
               } catch (reason) {
                 setSelfServiceError(
                   reason instanceof Error
                     ? reason.message
                     : "Unable to reschedule delivery",
                 );
+              } finally {
+                setActionBusy("");
               }
             }}
           >
@@ -1337,53 +1366,82 @@ function OrderDrawer({
                 defaultValue={order.deliveryNotes || ""}
               />
             </label>
-            <button className="button primary">Save new window</button>
+            <button className="button primary" disabled={Boolean(actionBusy)}>
+              {actionBusy === "reschedule" ? "Saving…" : "Save new window"}
+            </button>
             {selfServiceError && <p className="error">{selfServiceError}</p>}
           </form>
         )}
         {order.paymentStatus !== "paid" && (
           <button
             className="button primary full"
+            disabled={Boolean(actionBusy)}
             onClick={async () => {
-              const checkout = await api.checkout(order.id);
-              if (checkout.provider === "demo") {
-                await api.confirmPayment(order.id);
-                reload();
-                return;
-              }
-              await loadRazorpay();
-              const RazorpayCtor = (
-                window as unknown as {
-                  Razorpay?: new (options: unknown) => { open: () => void };
+              setActionBusy("payment");
+              setPaymentError("");
+              try {
+                const checkout = await api.checkout(order.id);
+                if (checkout.provider === "demo") {
+                  await api.confirmPayment(order.id);
+                  await reload();
+                  setActionBusy("");
+                  return;
                 }
-              ).Razorpay;
-              if (!RazorpayCtor)
-                throw new Error("Razorpay checkout script is unavailable");
-              new RazorpayCtor({
-                key: checkout.keyId,
-                amount: checkout.amount,
-                currency: checkout.currency,
-                name: "RoutePulse",
-                description: `Delivery ${order.trackingCode}`,
-                order_id: checkout.razorpayOrderId,
-                handler: async (response: {
-                  razorpay_order_id: string;
-                  razorpay_payment_id: string;
-                  razorpay_signature: string;
-                }) => {
-                  await api.verify(order.id, {
-                    razorpayOrderId: response.razorpay_order_id,
-                    razorpayPaymentId: response.razorpay_payment_id,
-                    razorpaySignature: response.razorpay_signature,
-                  });
-                  reload();
-                },
-              }).open();
+                await loadRazorpay();
+                const RazorpayCtor = (
+                  window as unknown as {
+                    Razorpay?: new (options: unknown) => { open: () => void };
+                  }
+                ).Razorpay;
+                if (!RazorpayCtor)
+                  throw new Error("Razorpay checkout script is unavailable");
+                new RazorpayCtor({
+                  key: checkout.keyId,
+                  amount: checkout.amount,
+                  currency: checkout.currency,
+                  name: "RoutePulse",
+                  description: `Delivery ${order.trackingCode}`,
+                  order_id: checkout.razorpayOrderId,
+                  ondismiss: () => setActionBusy(""),
+                  handler: async (response: {
+                    razorpay_order_id: string;
+                    razorpay_payment_id: string;
+                    razorpay_signature: string;
+                  }) => {
+                    try {
+                      await api.verify(order.id, {
+                        razorpayOrderId: response.razorpay_order_id,
+                        razorpayPaymentId: response.razorpay_payment_id,
+                        razorpaySignature: response.razorpay_signature,
+                      });
+                      await reload();
+                    } catch (reason) {
+                      setPaymentError(
+                        reason instanceof Error
+                          ? reason.message
+                          : "Payment verification failed",
+                      );
+                    } finally {
+                      setActionBusy("");
+                    }
+                  },
+                }).open();
+              } catch (reason) {
+                setPaymentError(
+                  reason instanceof Error
+                    ? reason.message
+                    : "Unable to start payment",
+                );
+                setActionBusy("");
+              }
             }}
           >
-            Pay securely
+            {actionBusy === "payment"
+              ? "Opening secure checkout…"
+              : "Pay securely"}
           </button>
         )}
+        {paymentError && <p className="error" role="alert">{paymentError}</p>}
         <h3>Timeline</h3>
         <ol className="timeline">
           {[...order.events].reverse().map((e) => (
@@ -1515,6 +1573,8 @@ function DriverView({
         socket.emit("location:update", {
           lat: position.lat,
           lng: position.lng,
+          accuracy: position.accuracy,
+          source: "browser-gps",
         });
         setLocationError("");
       },

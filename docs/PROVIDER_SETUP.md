@@ -96,8 +96,8 @@ The application uses MapLibre with the key-free OpenFreeMap Liberty style. Road 
 
 ## Render and Vercel
 
-The checked-in `render.yaml` creates one free web service in demo mode. It generates a private JWT secret automatically and deliberately omits PostgreSQL, Redis, Clerk, Razorpay, and SMTP credentials, so the hosted demo uses memory-backed data, inline simulated notifications, and demo payments. Free Render background workers are not available, so no worker is declared.
+The checked-in `render.yaml` creates one free web service configured for Clerk authentication and inline notifications. Secret provider values are marked `sync: false` so they remain in Render's dashboard rather than source control. Free Render background workers are not available, so no worker is declared.
 
 After the web frontend is deployed, set `WEB_ORIGIN` on Render to its exact HTTPS origin and set `VITE_API_URL` on Vercel to the Render API URL. Set `VITE_CLERK_PUBLISHABLE_KEY` and switch the backend to `AUTH_MODE=clerk` only when Clerk is configured. Add `VITE_MAP_STYLE` only if using a custom map style. Configure webhook URLs only after the Render API has a public HTTPS URL.
 
-For a durable hosted deployment, add managed `DATABASE_URL`, run the migration and seed commands against the hosted database, and keep `QUEUE_MODE=inline` on a web-only service. To enable BullMQ, add managed `REDIS_URL`, set `QUEUE_MODE=bullmq`, and run `apps/api/dist/workers/notificationWorker.js` on a paid worker or another always-on worker host. Do not point RoutePulse at another application's database or Redis instance.
+For a durable hosted deployment, add managed `DATABASE_URL`, run the migration and seed commands against the hosted database, and keep `QUEUE_MODE=inline` on a web-only service. To enable BullMQ, add managed `REDIS_URL`, set `QUEUE_MODE=bullmq`, and run `apps/api/dist/workers/notificationWorker.js` on a paid worker or another always-on worker host. Do not point RoutePulse at another application's database or Redis instance. The demo login endpoint is disabled whenever `AUTH_MODE=clerk`.

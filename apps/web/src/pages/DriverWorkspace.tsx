@@ -65,6 +65,8 @@ export function DriverWorkspace({
         socket.emit("location:update", {
           lat: position.lat,
           lng: position.lng,
+          accuracy: position.accuracy,
+          source: "browser-gps",
         });
         setLocationError("");
       },

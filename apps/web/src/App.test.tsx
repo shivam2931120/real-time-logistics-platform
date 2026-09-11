@@ -154,8 +154,10 @@ describe("RoutePulse entry", () => {
     );
     fireEvent.click(view.getByRole("button", { name: /Route planner/i }));
     expect(window.location.pathname).toBe("/routes");
-    expect(view.getByText("Build today's route")).toBeInTheDocument();
-    expect(view.getByText("RP-ROUTE1")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(view.getByText("Build today's route")).toBeInTheDocument();
+      expect(view.getByText("RP-ROUTE1")).toBeInTheDocument();
+    });
     fireEvent.keyDown(window, { key: "k", ctrlKey: true });
     const command = view.getByRole("dialog", { name: "Search RoutePulse" });
     fireEvent.change(within(command).getByLabelText("Search RoutePulse"), {

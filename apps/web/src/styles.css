@@ -3932,6 +3932,22 @@ td {
   color: #77869a;
   font-size: 0.75rem;
 }
+.analytics-comparison {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 16px;
+  padding: 10px 14px;
+  border: 1px solid #253142;
+  border-radius: 4px;
+  background: rgba(6, 182, 212, 0.06);
+  color: #77869a;
+  font-size: 0.72rem;
+}
+.analytics-comparison strong {
+  color: #e6edf3;
+  font: 700 0.7rem ui-monospace, SFMono-Regular, Menlo, monospace;
+}
 .analytics-actions {
   display: flex;
   align-items: center;
@@ -4660,6 +4676,22 @@ kbd {
 }
 .workspace-loading > span,
 .load-failure p {
+  color: #77869a;
+  font-size: 0.72rem;
+}
+.view-loading {
+  min-height: 240px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 10px;
+  color: #dce7f3;
+  text-align: center;
+}
+.view-loading strong {
+  font: 700 0.95rem "Space Grotesk", sans-serif;
+}
+.view-loading span {
   color: #77869a;
   font-size: 0.72rem;
 }

@@ -296,6 +296,15 @@ export const store = {
         order.organizationId === tenant &&
         new Date(order.createdAt).getTime() >= cutoff,
     );
+    const previousCutoff = cutoff - safeWindowDays * 24 * 60 * 60 * 1000;
+    const previousOrders = orders.filter((order) => {
+      const created = new Date(order.createdAt).getTime();
+      return (
+        order.organizationId === tenant &&
+        created >= previousCutoff &&
+        created < cutoff
+      );
+    });
     const tenantDriverIds = new Set(
       drivers
         .filter((driver) =>
@@ -315,6 +324,21 @@ export const store = {
     ).length;
     const paid = tenantOrders.filter((order) => order.paymentStatus === "paid");
     const revenue = paid.reduce((total, order) => total + order.amount, 0);
+    const previousDelivered = previousOrders.filter(
+      (order) => order.status === "delivered",
+    );
+    const previousOnTime = previousDelivered.filter(
+      (order) => order.deliveredAt! <= order.promisedAt,
+    );
+    const previousRevenue = previousOrders
+      .filter((order) => order.paymentStatus === "paid")
+      .reduce((total, order) => total + order.amount, 0);
+    const percentDelta = (current: number, previous: number) =>
+      previous === 0
+        ? current === 0
+          ? 0
+          : 100
+        : Math.round(((current - previous) / previous) * 100);
     const routeKm = tenantOrders.reduce(
       (total, order) => total + distanceKm(order),
       0,
@@ -517,6 +541,25 @@ export const store = {
       priorityPerformance,
       driverPerformance,
       zonePerformance,
+      comparison: {
+        previousWindowDays: safeWindowDays,
+        ordersDeltaPct: percentDelta(tenantOrders.length, previousOrders.length),
+        revenueDeltaPct: percentDelta(revenue, previousRevenue),
+        onTimeRateDelta:
+          (delivered.length
+            ? Math.round((onTime / delivered.length) * 100)
+            : 100) -
+          (previousDelivered.length
+            ? Math.round((previousOnTime.length / previousDelivered.length) * 100)
+            : 100),
+        completionRateDelta:
+          (tenantOrders.length
+            ? Math.round((delivered.length / tenantOrders.length) * 100)
+            : 0) -
+          (previousOrders.length
+            ? Math.round((previousDelivered.length / previousOrders.length) * 100)
+            : 0),
+      },
     };
   },
 };

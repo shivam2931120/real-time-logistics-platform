@@ -230,4 +230,11 @@ export interface AnalyticsSummary {
     onTimeRate: number;
     revenue: number;
   }>;
+  comparison?: {
+    previousWindowDays: number;
+    ordersDeltaPct: number;
+    revenueDeltaPct: number;
+    onTimeRateDelta: number;
+    completionRateDelta: number;
+  };
 }

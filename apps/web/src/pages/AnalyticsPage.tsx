@@ -130,6 +130,9 @@ export function AnalyticsPage({
     ([status, count]) => ({ status: status.replace("_", " "), count }),
   );
   const activeTrend = summary.trend;
+  const comparison = summary.comparison;
+  const deltaLabel = (value: number, suffix = "%") =>
+    `${value > 0 ? "+" : ""}${value}${suffix}`;
 
   return (
     <section className="analytics-page">
@@ -163,6 +166,15 @@ export function AnalyticsPage({
         </div>
       </div>
       {error && <p className="inline-notice warning">{error}</p>}
+      {comparison && (
+        <div className="analytics-comparison" aria-label="Period comparison">
+          <span>Compared with the previous {comparison.previousWindowDays} days</span>
+          <strong>Orders {deltaLabel(comparison.ordersDeltaPct)}</strong>
+          <strong>Revenue {deltaLabel(comparison.revenueDeltaPct)}</strong>
+          <strong>On-time {deltaLabel(comparison.onTimeRateDelta, " pts")}</strong>
+          <strong>Completion {deltaLabel(comparison.completionRateDelta, " pts")}</strong>
+        </div>
+      )}
       <div className="analytics-kpis analytics-kpis-extended">
         {metrics.map(([label, value, caption, Icon]) => (
           <article className="panel" key={label}>

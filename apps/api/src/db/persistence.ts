@@ -374,6 +374,118 @@ export async function persistDriver(driver: Driver) {
   if (!dbEnabled || !pool) return;
   await writeDriver(driver, pool);
 }
+export async function persistDriverLocation(
+  driver: Driver,
+  reading: { accuracy?: number; source?: string; recordedAt?: string } = {},
+) {
+  if (!dbEnabled || !pool) return;
+  await pool.query(
+    `INSERT INTO driver_location_events(id,organization_id,driver_id,latitude,longitude,accuracy_meters,source,recorded_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,
+    [
+      crypto.randomUUID(),
+      organizationUuid(
+        users.find((user) => user.id === driver.userId)?.organizationId ||
+          demoOrganizationId,
+      ),
+      asUuid(driver.id),
+      driver.location.lat,
+      driver.location.lng,
+      reading.accuracy ?? null,
+      reading.source || "gps",
+      reading.recordedAt || driver.lastSeenAt,
+    ],
+  );
+}
+export async function listDriverLocations(
+  driverId: string,
+  organizationId: string,
+  limit = 100,
+) {
+  if (!dbEnabled || !pool) return [];
+  const result = await pool.query(
+    `SELECT latitude,longitude,accuracy_meters,source,recorded_at FROM driver_location_events WHERE organization_id=$1 AND driver_id=$2 ORDER BY recorded_at DESC LIMIT $3`,
+    [organizationUuid(organizationId), asUuid(driverId), Math.min(Math.max(limit, 1), 500)],
+  );
+  return result.rows.map((row) => ({
+    lat: Number(row.latitude),
+    lng: Number(row.longitude),
+    accuracy: row.accuracy_meters === null ? undefined : Number(row.accuracy_meters),
+    source: row.source,
+    recordedAt: iso(row.recorded_at),
+  }));
+}
+export type PaymentRecordInput = {
+  organizationId?: string;
+  orderId: string;
+  provider: string;
+  providerRef: string;
+  amountMinor: number;
+  currency: string;
+  status: string;
+};
+async function writePaymentRecord(input: PaymentRecordInput, db: Pick<PoolClient, "query">) {
+  await db.query(
+    `INSERT INTO payments(id,organization_id,order_id,provider,provider_ref,amount_minor,currency,status) VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT(provider,provider_ref) DO UPDATE SET status=EXCLUDED.status,amount_minor=EXCLUDED.amount_minor,currency=EXCLUDED.currency`,
+    [
+      crypto.randomUUID(),
+      organizationUuid(input.organizationId || demoOrganizationId),
+      asUuid(input.orderId),
+      input.provider,
+      input.providerRef,
+      input.amountMinor,
+      input.currency,
+      input.status,
+    ],
+  );
+}
+export async function persistPaymentRecord(input: PaymentRecordInput) {
+  if (!dbEnabled || !pool) return;
+  await writePaymentRecord(input, pool);
+}
+export async function persistPaymentAndOrder(
+  order: Order,
+  input: PaymentRecordInput,
+) {
+  if (!dbEnabled || !pool) return;
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await writeOrder(order, client);
+    await writePaymentRecord(input, client);
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+export async function paymentOrderId(provider: string, providerRef: string) {
+  if (!dbEnabled || !pool) return undefined;
+  const result = await pool.query<{ order_id: string }>(
+    `SELECT order_id::text FROM payments WHERE provider=$1 AND provider_ref=$2 ORDER BY created_at DESC LIMIT 1`,
+    [provider, providerRef],
+  );
+  return result.rows[0]?.order_id;
+}
+export async function recordPaymentWebhook(input: {
+  eventKey: string;
+  eventName: string;
+  payload: unknown;
+}) {
+  if (!dbEnabled || !pool) return true;
+  const result = await pool.query(
+    `INSERT INTO payment_webhook_events(id,provider,event_key,event_name,payload) VALUES($1,$2,$3,$4,$5::jsonb) ON CONFLICT(event_key) DO NOTHING`,
+    [
+      crypto.randomUUID(),
+      "razorpay",
+      input.eventKey,
+      input.eventName,
+      JSON.stringify(input.payload),
+    ],
+  );
+  return result.rowCount === 1;
+}
 export async function persistException(item: DeliveryException) {
   if (!dbEnabled || !pool) return;
   await pool.query(

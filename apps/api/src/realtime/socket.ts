@@ -8,7 +8,7 @@ import {
   supportTickets,
   users,
 } from "../domain/store.js";
-import { persistDriver, persistOrder } from "../db/persistence.js";
+import { persistDriver, persistDriverLocation, persistOrder } from "../db/persistence.js";
 import { resolveClerkUser } from "../services/clerkIdentity.js";
 import { geofenceTransitions } from "../services/geofence.js";
 
@@ -86,7 +86,7 @@ export function configureSockets(io: Server) {
       last = now;
       const d = drivers.find((x) => x.userId === user.id);
       if (!d) return ack?.({ error: "Driver identity required" });
-      const p = raw as { lat?: number; lng?: number };
+      const p = raw as { lat?: number; lng?: number; accuracy?: number; source?: string };
       if (
         typeof p.lat !== "number" ||
         typeof p.lng !== "number" ||
@@ -97,6 +97,10 @@ export function configureSockets(io: Server) {
       d.location = { lat: p.lat, lng: p.lng };
       d.lastSeenAt = new Date().toISOString();
       void persistDriver(d);
+      void persistDriverLocation(d, {
+        accuracy: typeof p.accuracy === "number" ? p.accuracy : undefined,
+        source: p.source || "gps",
+      });
       const update = {
         driverId: d.id,
         location: d.location,

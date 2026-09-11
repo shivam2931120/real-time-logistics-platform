@@ -148,6 +148,10 @@ export const api = {
   me: () => request<User>("/api/me"),
   orders: () => request<Order[]>("/api/orders"),
   drivers: () => request<Driver[]>("/api/drivers"),
+  driverLocations: (id: string, limit = 100) =>
+    request<Array<{ lat: number; lng: number; accuracy?: number; source: string; recordedAt: string }>>(
+      `/api/drivers/${encodeURIComponent(id)}/locations?limit=${limit}`,
+    ),
   analytics: (days = 7) =>
     request<AnalyticsSummary>(`/api/analytics/summary?days=${days}`),
   mapRoute: (

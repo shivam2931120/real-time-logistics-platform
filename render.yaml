@@ -10,10 +10,30 @@ services:
       - key: NODE_VERSION
         value: 22
       - key: AUTH_MODE
-        value: demo
+        value: clerk
       - key: QUEUE_MODE
         value: inline
       - key: JWT_SECRET
         generateValue: true
       - key: WEB_ORIGIN
         value: https://routepulse.justshivamm.in,https://real-time-logistics-platform.vercel.app,http://localhost:5173,http://127.0.0.1:5173
+      - key: DEFAULT_ORGANIZATION_ID
+        value: org_demo
+      - key: DATABASE_URL
+        sync: false
+      - key: CLERK_SECRET_KEY
+        sync: false
+      - key: CLERK_WEBHOOK_SIGNING_SECRET
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: RAZORPAY_KEY_ID
+        sync: false
+      - key: RAZORPAY_KEY_SECRET
+        sync: false
+      - key: RAZORPAY_WEBHOOK_SECRET
+        sync: false
+      - key: GOOGLE_SMTP_USER
+        sync: false
+      - key: GOOGLE_SMTP_APP_PASSWORD
+        sync: false

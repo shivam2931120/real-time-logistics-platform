@@ -27,7 +27,7 @@ Driver geolocation ──Socket.IO──> validated location store + tenant/trac
 | ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Organization      | id, name, timezone, ETA speed, geofence radius, notification setting                                                                                                                      |
 | User              | id, organizationId, name, email, role                                                                                                                                                     |
-| Driver            | id, userId, status, capacityKg, currentLat/Lng, lastSeenAt                                                                                                                                |
+| Driver            | id, userId, status, capacityKg, currentLat/Lng, lastSeenAt, durable GPS history with accuracy/source                                                                                     |
 | Order             | id, organizationId, trackingCode, parcelCode, customer, stops, delivery window/notes, reschedule/cancel metadata, PIN hash, ETA risk, proof, status/payment, assignedDriverId, timestamps |
 | ParcelScan        | id, tenant/order, parcelCode, stage (`pickup`/`hub`/`delivery`), scanner, timestamp; unique per order/stage                                                                               |
 | SupportTicket     | id, tenant/order/customer, subject, category, priority, status, assignee, timestamps                                                                                                      |
@@ -48,7 +48,7 @@ All private endpoints require `Authorization: Bearer <JWT>`. Demo login accepts 
 
 | Method    | Route                                               | Roles                            | Purpose                                       |
 | --------- | --------------------------------------------------- | -------------------------------- | --------------------------------------------- |
-| POST      | `/api/auth/demo`                                    | public                           | issue demo JWT                                |
+| POST      | `/api/auth/demo`                                    | local demo mode only             | issue seeded demo JWT                         |
 | POST      | `/api/maps/route`                                   | public/rate-limited              | validated cached OSRM route geometry          |
 | GET       | `/api/maps/search`                                  | public/rate-limited              | cached Nominatim search with Photon fallback  |
 | GET       | `/api/me`                                           | all                              | current identity                              |
@@ -61,6 +61,7 @@ All private endpoints require `Authorization: Bearer <JWT>`. Demo login accepts 
 | POST      | `/api/orders/:id/proof`                             | assigned driver                  | verify PIN and atomically complete with proof |
 | POST      | `/api/routes/optimize`                              | dispatcher/admin                 | capacity-aware stop ordering                  |
 | GET       | `/api/drivers`                                      | dispatcher/admin                 | tenant fleet state                            |
+| GET       | `/api/drivers/:id/locations?limit=100`              | dispatcher/admin                 | recent persisted GPS history                  |
 | PATCH     | `/api/drivers/:id`                                  | dispatcher/admin                 | update operational status/capacity            |
 | GET/POST  | `/api/exceptions`, `/api/orders/:id/exceptions`     | operations/assigned driver       | exception queue and reporting                 |
 | PATCH     | `/api/exceptions/:id/resolve`                       | dispatcher/admin                 | resolve an exception                          |
@@ -73,12 +74,12 @@ All private endpoints require `Authorization: Bearer <JWT>`. Demo login accepts 
 | POST      | `/api/customer/orders/:id/cancel`                   | customer owner                   | Cancel pending/assigned delivery              |
 | GET/POST  | `/api/orders/:id/scans`                             | tenant / ops mutation            | Read or record idempotent parcel scan         |
 | GET       | `/api/reports/orders.csv`                           | tenant roles                     | Delivery detail export                        |
-| GET       | `/api/reports/summary.csv?days=7                    | 30                               | 90`                                           | admin/dispatcher | expanded operational analytics export         |
+| GET       | `/api/reports/summary.csv?days=7|30|90`             | admin/dispatcher                 | expanded operational analytics export         |
 | GET/POST  | `/api/support/tickets`                              | tenant roles                     | List/create support tickets                   |
 | GET/POST  | `/api/support/tickets/:id/messages`                 | ticket participants              | Thread messages with customer-safe filtering  |
 | PATCH     | `/api/support/tickets/:id`                          | admin/dispatcher                 | Update status/assignment                      |
 | POST      | `/api/payments/demo/:orderId/confirm`               | demo only                        | simulate settlement                           |
-| GET       | `/api/analytics/summary?days=7                      | 30                               | 90`                                           | dispatcher/admin | SLA, route, geofence, driver and zone metrics |
+| GET       | `/api/analytics/summary?days=7|30|90`              | dispatcher/admin                 | SLA, route, geofence, driver, zone and period-comparison metrics |
 | GET       | `/api/track/:code`                                  | public                           | privacy-minimized tracking snapshot           |
 | GET       | `/health`                                           | public                           | liveness and adapter modes                    |
 
@@ -88,7 +89,7 @@ Socket client events: `location:update`, `order:subscribe`. Server events: `driv
 
 - The API owns lifecycle validation; clients cannot set arbitrary order states.
 - Assignment and driver availability must commit atomically in a durable repository.
-- Payment callbacks are idempotent on provider event/reference.
+- Payment callbacks are idempotent on provider event/reference and payment/order writes are committed atomically when PostgreSQL is enabled.
 - Location is high-volume operational state; the latest driver point and material arrival events are durable.
 - The database is authoritative; queue insertion follows durable job/outbox creation in the production repository.
 

@@ -28,8 +28,12 @@ import {
 } from "./services/payments.js";
 import { notificationMode, notify } from "./services/notifications.js";
 import {
+  asUuid,
   persistAudit,
   persistDriver,
+  listDriverLocations,
+  persistPaymentAndOrder,
+  recordPaymentWebhook,
   persistException,
   persistExceptionAndOrder,
   persistNotification,
@@ -294,6 +298,8 @@ export function createApp() {
     }
   });
   app.post("/api/auth/demo", (req, res) => {
+    if (process.env.AUTH_MODE === "clerk")
+      return res.status(404).json({ error: "Demo authentication is disabled" });
     const parsed = z
       .object({ role: z.enum(["admin", "dispatcher", "driver", "customer"]) })
       .safeParse(req.body);
@@ -359,7 +365,10 @@ export function createApp() {
         payload?: {
           payment?: {
             entity?: {
+              id?: string;
               order_id?: string;
+              amount?: number;
+              currency?: string;
               notes?: { routepulseOrderId?: string };
             };
           };
@@ -373,24 +382,39 @@ export function createApp() {
       const localId =
         entity?.notes?.routepulseOrderId ||
         body.payload?.order?.entity?.notes?.routepulseOrderId ||
-        (providerOrder ? orderIdForRazorpayOrder(providerOrder) : undefined);
+        (providerOrder ? await orderIdForRazorpayOrder(providerOrder) : undefined);
+      const eventKey = `${body.event || "unknown"}:${providerOrder || "none"}:${entity?.id || "none"}`;
+      if (!(await recordPaymentWebhook({ eventKey, eventName: body.event || "unknown", payload: body })))
+        return res.status(200).json({ received: true, duplicate: true });
       if (localId) {
-        const order = orders.find((o) => o.id === localId);
+        const order = orders.find((o) => o.id === localId || asUuid(o.id) === localId);
+        const captured = ["payment.captured", "order.paid"].includes(body.event || "");
+        const failed = ["payment.failed", "order.payment_failed"].includes(body.event || "");
         if (
           order &&
-          ["payment.captured", "order.paid"].includes(body.event || "") &&
-          order.paymentStatus !== "paid"
+          (captured || failed) &&
+          (captured ? order.paymentStatus !== "paid" : order.paymentStatus === "pending")
         ) {
           const snapshot = structuredClone(order);
-          order.paymentStatus = "paid";
+          order.paymentStatus = captured ? "paid" : "failed";
           order.updatedAt = new Date().toISOString();
           try {
-            await persistOrder(order);
+            if (entity?.id)
+              await persistPaymentAndOrder(order, {
+                organizationId: order.organizationId,
+                orderId: order.id,
+                provider: "razorpay_payment",
+                providerRef: entity.id,
+                amountMinor: Number(entity.amount || Math.round(order.amount * 100)),
+                currency: String(entity.currency || order.currency),
+                status: captured ? "captured" : "failed",
+              });
+            else await persistOrder(order);
           } catch (error) {
             restore(order, snapshot);
             throw error;
           }
-          await notifySafely(order, "payment_received");
+          await notifySafely(order, captured ? "payment_received" : "payment_failed");
         }
       }
       return res.status(200).json({ received: true });
@@ -809,6 +833,24 @@ export function createApp() {
         driverForTenant(driver, req.user!.organizationId),
       ),
     ),
+  );
+  app.get(
+    "/api/drivers/:id/locations",
+    permit("admin", "dispatcher"),
+    async (req, res, next) => {
+      try {
+        const driver = drivers.find(
+          (item) =>
+            item.id === req.params.id &&
+            driverForTenant(item, req.user!.organizationId),
+        );
+        if (!driver) return res.status(404).json({ error: "Driver not found" });
+        const limit = z.coerce.number().int().min(1).max(500).default(100).parse(req.query.limit);
+        return res.json(await listDriverLocations(driver.id, req.user!.organizationId, limit));
+      } catch (error) {
+        next(error);
+      }
+    },
   );
   app.patch(
     "/api/drivers/:id",
@@ -1554,12 +1596,12 @@ export function createApp() {
           })
           .parse(req.body);
         if (
-          !verifyRazorpayPayment(
+          !(await verifyRazorpayPayment(
             order.id,
             input.razorpayOrderId,
             input.razorpayPaymentId,
             input.razorpaySignature,
-          )
+          ))
         )
           return res.status(400).json({ error: "Payment verification failed" });
         const snapshot = structuredClone(order);
@@ -1573,7 +1615,15 @@ export function createApp() {
           createdAt: order.updatedAt,
         });
         try {
-          await persistOrder(order);
+          await persistPaymentAndOrder(order, {
+            organizationId: order.organizationId,
+            orderId: order.id,
+            provider: "razorpay_payment",
+            providerRef: input.razorpayPaymentId,
+            amountMinor: Math.round(order.amount * 100),
+            currency: order.currency,
+            status: "captured",
+          });
         } catch (error) {
           restore(order, snapshot);
           throw error;
@@ -1611,7 +1661,15 @@ export function createApp() {
           createdAt: order.updatedAt,
         });
         try {
-          await persistOrder(order);
+          await persistPaymentAndOrder(order, {
+            organizationId: order.organizationId,
+            orderId: order.id,
+            provider: "demo_payment",
+            providerRef: `demo_${order.id}`,
+            amountMinor: Math.round(order.amount * 100),
+            currency: order.currency,
+            status: "captured",
+          });
         } catch (error) {
           restore(order, snapshot);
           throw error;

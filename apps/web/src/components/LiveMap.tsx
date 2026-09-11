@@ -222,19 +222,23 @@ export function LiveMap({
     const controller = new AbortController();
     const loadRoutes = async () => {
       const entries: Record<string, [number, number][]> = {};
-      await Promise.all(
-        activeOrders.slice(0, 16).map(async (order) => {
-          try {
-            const route = await roadRoute(
-              [order.pickup, order.dropoff],
-              controller.signal,
-            );
-            if (route?.length) entries[order.id] = route;
-          } catch {
-            // Keep the straight-line fallback when OSRM is rate-limited/offline.
-          }
-        }),
-      );
+      const routeOrders = activeOrders.slice(0, 16);
+      for (let index = 0; index < routeOrders.length; index += 3) {
+        await Promise.all(
+          routeOrders.slice(index, index + 3).map(async (order) => {
+            try {
+              const route = await roadRoute(
+                [order.pickup, order.dropoff],
+                controller.signal,
+              );
+              if (route?.length) entries[order.id] = route;
+            } catch {
+              // Keep the straight-line fallback when OSRM is rate-limited/offline.
+            }
+          }),
+        );
+        if (controller.signal.aborted) return;
+      }
       const optimizedCoordinates = routeCoordinates;
       if (optimizedCoordinates && optimizedCoordinates.length > 1) {
         try {
