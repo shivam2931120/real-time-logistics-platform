@@ -84,8 +84,6 @@ export function configureSockets(io: Server) {
       const now = Date.now();
       if (now - last < 1000) return ack?.({ error: "Update rate exceeded" });
       last = now;
-      const d = drivers.find((x) => x.userId === user.id);
-      if (!d) return ack?.({ error: "Driver identity required" });
       const p = raw as { lat?: number; lng?: number; accuracy?: number; source?: string };
       if (
         typeof p.lat !== "number" ||
@@ -94,6 +92,21 @@ export function configureSockets(io: Server) {
         Math.abs(p.lng) > 180
       )
         return ack?.({ error: "Invalid coordinates" });
+      let d = drivers.find((x) => x.userId === user.id);
+      if (!d && user.role === "driver") {
+        d = {
+          id: `driver_${user.id}`,
+          userId: user.id,
+          name: user.name,
+          status: "available",
+          capacityKg: 100,
+          location: { lat: p.lat, lng: p.lng },
+          lastSeenAt: new Date().toISOString(),
+          maintenanceStatus: "ok",
+        };
+        drivers.push(d);
+      }
+      if (!d) return ack?.({ error: "Driver identity required" });
       d.location = { lat: p.lat, lng: p.lng };
       d.lastSeenAt = new Date().toISOString();
       void persistDriver(d);

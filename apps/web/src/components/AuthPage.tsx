@@ -3,6 +3,28 @@ import { useSignIn, useSignUp } from "@clerk/clerk-react";
 
 type AuthMode = "sign-in" | "sign-up";
 type SignInStep = "identifier" | "password" | "code";
+const demoCredentials = [
+  {
+    role: "Admin",
+    email: "demo.admin@routepulse.justshivamm.in",
+    password: "RoutePulseDemo!Admin2026",
+  },
+  {
+    role: "Dispatcher",
+    email: "demo.dispatcher@routepulse.justshivamm.in",
+    password: "RoutePulseDemo!Dispatch2026",
+  },
+  {
+    role: "Driver",
+    email: "demo.driver@routepulse.justshivamm.in",
+    password: "RoutePulseDemo!Driver2026",
+  },
+  {
+    role: "Customer",
+    email: "demo.customer@routepulse.justshivamm.in",
+    password: "RoutePulseDemo!Customer2026",
+  },
+] as const;
 
 function errorMessage(reason: unknown) {
   if (reason && typeof reason === "object" && "errors" in reason) {
@@ -49,6 +71,18 @@ export default function AuthPage() {
     setVerificationPending(false);
     setSignInStep("identifier");
     setCode("");
+  };
+
+  const useDemoCredential = (credential: (typeof demoCredentials)[number]) => {
+    setMode("sign-in");
+    setAuthHash("sign-in");
+    setEmail(credential.email);
+    setPassword(credential.password);
+    setSignInStep("identifier");
+    setVerificationPending(false);
+    setCode("");
+    setError("");
+    setNotice(`${credential.role} demo credentials loaded. Select Continue to sign in.`);
   };
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
@@ -195,6 +229,34 @@ export default function AuthPage() {
               <span aria-hidden="true">→</span>
             </button>
           </form>
+
+          {mode === "sign-in" && !isVerification && (
+            <section className="demo-credentials" aria-labelledby="demo-credentials-title">
+              <div className="demo-credentials-heading">
+                <div>
+                  <span className="auth-kicker">PUBLIC SANDBOX</span>
+                  <h3 id="demo-credentials-title">Try a role workspace</h3>
+                </div>
+                <span className="technical-badge">DEMO</span>
+              </div>
+              <p>These accounts are for exploring the RoutePulse interface only.</p>
+              <div className="demo-credential-list">
+                {demoCredentials.map((credential) => (
+                  <button
+                    className="demo-credential"
+                    key={credential.role}
+                    type="button"
+                    onClick={() => useDemoCredential(credential)}
+                    disabled={!loaded || loading}
+                  >
+                    <span className="demo-credential-role">{credential.role}</span>
+                    <span className="demo-credential-email">{credential.email}</span>
+                    <span className="demo-credential-action">Use credentials →</span>
+                  </button>
+                ))}
+              </div>
+            </section>
+          )}
 
           {isVerification && <button className="auth-text-button" type="button" onClick={() => { setVerificationPending(false); setSignInStep("identifier"); setCode(""); setNotice(""); setError(""); }}>Use a different email</button>}
           {!isVerification && <p className="auth-switch">{mode === "sign-in" ? "New to RoutePulse?" : "Already have an account?"} <button type="button" onClick={() => changeMode(mode === "sign-in" ? "sign-up" : "sign-in")}>{mode === "sign-in" ? "Create an account" : "Sign in"}</button></p>}

@@ -18,6 +18,9 @@ import { assertTransition } from "./stateMachine.js";
 
 const now = () => new Date().toISOString();
 const org = "org_demo";
+// Seeded fixtures are useful for local development and automated tests, but
+// production Clerk sessions must start from PostgreSQL only.
+const includeDemoFixtures = process.env.AUTH_MODE !== "clerk";
 const distanceKm = (order: Order) => {
   const radius = 6371;
   const radians = Math.PI / 180;
@@ -38,7 +41,7 @@ const deliveryMinutes = (order: Order) =>
     : 0;
 const zoneName = (order: Order) =>
   order.dropoff.label.split(",")[0]?.trim() || "Other";
-export const users: User[] = [
+const demoUsers: User[] = [
   {
     id: "u_admin",
     organizationId: org,
@@ -75,7 +78,8 @@ export const users: User[] = [
     role: "customer",
   },
 ];
-export const drivers: Driver[] = [
+export const users: User[] = includeDemoFixtures ? demoUsers : [];
+const demoDrivers: Driver[] = [
   {
     id: "d_rohan",
     userId: "u_driver1",
@@ -103,6 +107,7 @@ export const drivers: Driver[] = [
     maintenanceStatus: "due",
   },
 ];
+export const drivers: Driver[] = includeDemoFixtures ? demoDrivers : [];
 const event = (
   type: string,
   message: string,
@@ -114,7 +119,7 @@ const event = (
   actorId,
   createdAt: now(),
 });
-export const orders: Order[] = [
+const demoOrders: Order[] = [
   {
     id: "ord_1001",
     organizationId: org,
@@ -187,6 +192,7 @@ export const orders: Order[] = [
     parcelCode: "PKG-RP-DEMO99",
   },
 ];
+export const orders: Order[] = includeDemoFixtures ? demoOrders : [];
 export const deliveryExceptions: DeliveryException[] = [];
 export const notificationRecords: NotificationRecord[] = [];
 export const auditRecords: AuditRecord[] = [];

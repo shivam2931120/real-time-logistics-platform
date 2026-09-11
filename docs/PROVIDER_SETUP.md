@@ -70,6 +70,8 @@ Razorpay's public checkout key is returned by the authenticated checkout API; no
 
 The API accepts Clerk session tokens, while the webhook synchronizes user identity, email, and public-metadata role into PostgreSQL. The free deployment uses `DEFAULT_ORGANIZATION_ID=org_demo` as one tenant. Keep organization-to-tenant mapping aligned before enabling multiple organizations.
 
+The production sign-in page includes four public sandbox accounts (admin, dispatcher, driver, and customer) for demonstrations. The preserved owner account is not a sandbox account. The Render migration removes the legacy `@routepulse.demo` users and `RP-DEMO*` records once, preserving the organization and owner account.
+
 ## Razorpay
 
 1. Use Test Mode while developing.

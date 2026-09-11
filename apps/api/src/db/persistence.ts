@@ -349,10 +349,20 @@ async function writeOrder(order: Order, db: Pick<PoolClient, "query">) {
 }
 
 async function writeDriver(driver: Driver, db: Pick<PoolClient, "query">) {
+  const organizationId = organizationUuid(
+    users.find((user) => user.id === driver.userId)?.organizationId ||
+      demoOrganizationId,
+  );
   await db.query(
-    `UPDATE drivers SET status=$1,current_lat=$2,current_lng=$3,last_seen_at=$4,shift_start=$5,shift_end=$6,vehicle_plate=$7,maintenance_due_at=$8,maintenance_status=$9 WHERE id=$10`,
+    `INSERT INTO drivers(id,organization_id,user_id,status,capacity_kg,current_lat,current_lng,last_seen_at,shift_start,shift_end,vehicle_plate,maintenance_due_at,maintenance_status)
+     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+     ON CONFLICT(id) DO UPDATE SET status=EXCLUDED.status,current_lat=EXCLUDED.current_lat,current_lng=EXCLUDED.current_lng,last_seen_at=EXCLUDED.last_seen_at,shift_start=EXCLUDED.shift_start,shift_end=EXCLUDED.shift_end,vehicle_plate=EXCLUDED.vehicle_plate,maintenance_due_at=EXCLUDED.maintenance_due_at,maintenance_status=EXCLUDED.maintenance_status`,
     [
+      asUuid(driver.id),
+      organizationId,
+      asUuid(driver.userId),
       driver.status,
+      driver.capacityKg,
       driver.location.lat,
       driver.location.lng,
       driver.lastSeenAt,
@@ -361,7 +371,6 @@ async function writeDriver(driver: Driver, db: Pick<PoolClient, "query">) {
       driver.vehiclePlate || null,
       driver.maintenanceDueAt || null,
       driver.maintenanceStatus || "ok",
-      asUuid(driver.id),
     ],
   );
 }

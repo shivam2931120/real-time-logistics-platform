@@ -2702,6 +2702,18 @@ td {
 .auth-form input::placeholder { color: #536174; }
 .auth-form input:focus { border-color: #06b6d4; box-shadow: 0 0 0 2px #06b6d41f; }
 .auth-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.demo-credentials { margin-top: 28px; padding-top: 22px; border-top: 1px solid #253142; }
+.demo-credentials-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.demo-credentials-heading .auth-kicker { margin: 0 0 5px; }
+.demo-credentials h3 { margin: 0; color: #f2f7fb; font: 650 17px/1.1 "Space Grotesk", sans-serif; letter-spacing: -.035em; }
+.demo-credentials > p { margin: 8px 0 14px; color: #718095; font: 400 11px/1.45 "Work Sans", sans-serif; }
+.demo-credential-list { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.demo-credential { display: grid; gap: 4px; min-width: 0; padding: 11px; border: 1px solid #253142; border-radius: 3px; background: #111821; color: #f2f7fb; text-align: left; cursor: pointer; transition: border-color .2s ease, background .2s ease, transform .2s ease; }
+.demo-credential:hover { border-color: #06b6d4; background: #14222c; transform: translateY(-1px); }
+.demo-credential:disabled { cursor: wait; opacity: .65; transform: none; }
+.demo-credential-role { color: #06b6d4; font: 700 10px/1 "Work Sans", sans-serif; letter-spacing: .08em; text-transform: uppercase; }
+.demo-credential-email { overflow: hidden; color: #b5c1cf; font: 500 10px/1.3 "Work Sans", sans-serif; text-overflow: ellipsis; white-space: nowrap; }
+.demo-credential-action { color: #718095; font: 600 10px/1.3 "Work Sans", sans-serif; }
 .auth-submit { display: flex; align-items: center; justify-content: space-between; min-height: 45px; margin-top: 2px; padding: 0 14px; border: 1px solid #06b6d4; background: #06b6d4; color: #031015; font: 700 12px "Work Sans", sans-serif; transition: all .2s ease; }
 .auth-submit:hover { background: #22d3ee; border-color: #22d3ee; }
 .auth-submit span { font-size: 18px; line-height: 0; }
@@ -2731,6 +2743,7 @@ td {
   .auth-metrics { gap: 16px; margin-top: 20px; }
   .auth-panel-inner { padding: 30px 20px 36px; }
   .auth-form-grid { grid-template-columns: 1fr; gap: 17px; }
+  .demo-credential-list { grid-template-columns: 1fr; }
   .auth-logo { margin-left: -12px; }
 }
 .driver-app {
