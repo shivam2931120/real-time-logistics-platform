@@ -196,6 +196,7 @@ export function TrackingPage() {
                 {tracking.etaConfidence && (
                   <small className="eta-confidence">
                     {tracking.etaConfidence} confidence
+                    {tracking.etaSource === "route_run" ? " · route plan" : " · direct estimate"}
                     {tracking.locationAgeSeconds !== undefined
                       ? ` · GPS ${Math.max(0, Math.round(tracking.locationAgeSeconds / 60))}m ago`
                       : ""}

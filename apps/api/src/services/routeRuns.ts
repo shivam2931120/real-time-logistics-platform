@@ -137,6 +137,23 @@ export function getRouteRun(organizationId: string, id: string) {
   return run?.organizationId === organizationId ? run : undefined;
 }
 
+/**
+ * Return the active published route containing an order. This is deliberately
+ * synchronous because route runs are loaded into the process cache during boot
+ * and every mutation updates that cache before it is returned to callers.
+ */
+export function activeRouteRunForOrder(
+  organizationId: string,
+  orderId: string,
+) {
+  return [...routeRuns.values()].find(
+    (run) =>
+      run.organizationId === organizationId &&
+      (run.status === "published" || run.status === "in_progress") &&
+      run.orderIds.includes(orderId),
+  );
+}
+
 export async function updateRouteRunStatus(
   run: RouteRun,
   status: RouteRunStatus,

@@ -93,6 +93,7 @@ import {
 } from "./services/integrations.js";
 import {
   createRouteRun,
+  activeRouteRunForOrder,
   getRouteRun,
   listRouteRuns,
   updateRouteRunStatus,
@@ -232,7 +233,17 @@ const restore = <T extends object>(target: T, snapshot: T) => {
 };
 const etaFor = (order: Order) => {
   const driver = drivers.find((item) => item.id === order.assignedDriverId);
-  return { ...order, ...estimateEta(order, driver, settingsForOrganization(order.organizationId)) };
+  const activeRoute = activeRouteRunForOrder(order.organizationId, order.id);
+  return {
+    ...order,
+    ...estimateEta(
+      order,
+      driver,
+      settingsForOrganization(order.organizationId),
+      Date.now(),
+      activeRoute,
+    ),
+  };
 };
 const audit = async (
   user: User,
@@ -417,6 +428,7 @@ export function createApp() {
       lateRisk: Boolean(order.lateRisk),
       etaConfidence: order.etaConfidence,
       locationAgeSeconds: order.locationAgeSeconds,
+      etaSource: order.etaSource,
       updatedAt: order.updatedAt,
       proof: order.proof
         ? {

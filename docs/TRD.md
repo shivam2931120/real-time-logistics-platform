@@ -117,7 +117,7 @@ Socket client events: `location:update`, `order:subscribe`. Server events: `driv
 
 ## 6. Optimization
 
-Input is a depot/current position, candidate stops with coordinates/demand, vehicle capacity, and optional route constraints (`startAt`, speed, service minutes, max duration, delivery-window handling, return-to-depot, and shift end). The service rejects stops exceeding capacity, scores nearest-neighbour choices using priority and promised-time risk, and uses bounded 2-opt only when no timing constraints are present. The final simulation returns per-stop arrival/departure times, waiting minutes, late-risk flags, warnings, finish time, and optional return distance. It is deterministic and explainable; it remains a traffic-free fallback and does not claim global VRP optimality.
+Input is a depot/current position, candidate stops with coordinates/demand, vehicle capacity, and optional route constraints (`startAt`, speed, service minutes, max duration, delivery-window handling, return-to-depot, and shift end). The service rejects stops exceeding capacity, scores nearest-neighbour choices using priority and promised-time risk, and uses bounded 2-opt only when no timing constraints are present. The final simulation returns per-stop arrival/departure times, waiting minutes, late-risk flags, warnings, finish time, and optional return distance. It is deterministic and explainable; it remains a traffic-free fallback and does not claim global VRP optimality. Once a route run is published, customer ETAs follow the active stop sequence and the latest persisted driver GPS fix (including preceding planned service dwell), with a direct-distance fallback when no active route exists.
 
 ## 7. Security and privacy
 

@@ -153,6 +153,8 @@ export interface Order {
   lateRisk?: boolean;
   etaConfidence?: "high" | "medium" | "low";
   locationAgeSeconds?: number;
+  /** Indicates whether the ETA follows a published route run or uses a direct estimate. */
+  etaSource?: "direct" | "route_run";
   deliveryNotes?: string;
   parcelCode?: string;
   rescheduleCount?: number;
@@ -401,6 +403,7 @@ export interface TrackingSnapshot {
   lateRisk: boolean;
   etaConfidence?: "high" | "medium" | "low";
   locationAgeSeconds?: number;
+  etaSource?: "direct" | "route_run";
   updatedAt: string;
   proof?: { recipientName: string; createdAt: string };
   events: Array<Pick<OrderEvent, "type" | "message" | "createdAt">>;
