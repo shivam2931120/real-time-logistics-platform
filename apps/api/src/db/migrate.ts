@@ -1,16 +1,18 @@
 import "dotenv/config";
 import { pool } from "./client.js";
 import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-if (!pool)
-  throw new Error("DATABASE_URL is required. Copy .env.example to .env first.");
-const sql = await readFile(
-  fileURLToPath(new URL("../../../../docs/schema.sql", import.meta.url)),
-  "utf8",
-);
-const client = await pool.connect();
-try {
+export async function runMigrations(closePool = true) {
+  if (!pool)
+    throw new Error("DATABASE_URL is required. Copy .env.example to .env first.");
+  const sql = await readFile(
+    fileURLToPath(new URL("../../../../docs/schema.sql", import.meta.url)),
+    "utf8",
+  );
+  const client = await pool.connect();
+  try {
   await client.query("CREATE EXTENSION IF NOT EXISTS citext");
   await client.query("CREATE EXTENSION IF NOT EXISTS pgcrypto");
   await client.query(
@@ -176,7 +178,12 @@ try {
     `INSERT INTO schema_migrations(version) VALUES('001_baseline'),('002_free_operations'),('003_self_service_reporting_support') ON CONFLICT DO NOTHING`,
   );
   console.info("RoutePulse database schema is current");
-} finally {
-  client.release();
-  await pool.end();
+  } finally {
+    client.release();
+    if (closePool) await pool.end();
+  }
+}
+
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  await runMigrations();
 }

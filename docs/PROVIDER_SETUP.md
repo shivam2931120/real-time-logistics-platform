@@ -33,6 +33,7 @@ Do not paste secret values into chat or commit either environment file. Set them
 | `DB_CONNECTION_TIMEOUT_MS`     | Optional database connect timeout; defaults to `15000`                                                |
 | `REDIS_URL`                    | Required for BullMQ notification queues and the notification worker when `QUEUE_MODE=bullmq`          |
 | `QUEUE_MODE`                   | Use `inline` on a web-only service; use `bullmq` only when a worker is running against the same Redis |
+| `MIGRATE_ON_START`             | Set to `true` on Render to run the idempotent PostgreSQL schema migration before loading durable state; keep `false` for local development when migrations are run explicitly |
 | `CLERK_SECRET_KEY`             | Required only when `AUTH_MODE=clerk`                                                                  |
 | `CLERK_WEBHOOK_SIGNING_SECRET` | Required to accept Clerk webhooks                                                                     |
 | `RAZORPAY_KEY_ID`              | Required to enable Razorpay checkout                                                                  |
@@ -102,11 +103,11 @@ The application uses MapLibre with the key-free OpenFreeMap Liberty style. Road 
 
 ## Render and Vercel
 
-The checked-in `render.yaml` creates one free web service configured for Clerk authentication and inline notifications. Secret provider values are marked `sync: false` so they remain in Render's dashboard rather than source control. Free Render background workers are not available, so no worker is declared.
+The checked-in `render.yaml` creates one free web service configured for Clerk authentication and inline notifications. Secret provider values are marked `sync: false` so they remain in Render's dashboard rather than source control. Free Render background workers are not available, so no worker is declared. The service binds its liveness port before database initialization, runs the idempotent migration at startup when `MIGRATE_ON_START=true`, and keeps `/health/ready` truthful while retrying a temporarily unavailable database.
 
 After the web frontend is deployed, set `WEB_ORIGIN` on Render to its exact HTTPS origin and set `VITE_API_URL` on Vercel to the Render API URL. Set `VITE_CLERK_PUBLISHABLE_KEY` and switch the backend to `AUTH_MODE=clerk` only when Clerk is configured. The public sandbox credentials use the dedicated `/api/auth/demo` flow even in Clerk mode; set `DEMO_AUTH_ENABLED=false` to disable that sandbox. Add `VITE_MAP_STYLE` only if using a custom map style. Configure webhook URLs only after the Render API has a public HTTPS URL.
 
-For a durable hosted deployment, add managed `DATABASE_URL`, run the migration command against the hosted database, and verify `GET /health/ready` returns `200`. Keep `DEMO_AUTH_ENABLED=true` only on the showcase/staging service. For real production, set it to `false`, use a separate database, and set `STRICT_CONFIG=true` after the first successful readiness check.
+For a durable hosted deployment, add managed `DATABASE_URL` and verify `GET /health/ready` returns `200`. The checked-in Render service runs migrations at startup; a failed database connection leaves liveness available but keeps readiness at `503` and retries instead of serving mutations against an uninitialized store. Keep `DEMO_AUTH_ENABLED=true` only on the showcase/staging service. For real production, set it to `false`, use a separate database, and set `STRICT_CONFIG=true` after the first successful readiness check.
 
 To enable durable notifications, add managed `REDIS_URL`, set `QUEUE_MODE=bullmq` on the API service, and deploy `render.worker.yaml` as a separate always-on worker. The worker needs the same Redis and Gmail SMTP values. A free Render web-only service must remain on `QUEUE_MODE=inline`; do not claim queued delivery until the worker is running.
 

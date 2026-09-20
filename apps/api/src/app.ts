@@ -345,6 +345,7 @@ export function createApp() {
   app.get("/health", (_req, res) =>
     res.json({
       status: "ok",
+      startup: app.locals.startupReady === false ? "starting" : "ready",
       environment: runtimeEnvironment(),
       auth: process.env.AUTH_MODE === "clerk" ? (demoAuthEnabled() ? "clerk+demo" : "clerk") : "demo",
       persistence: persistenceMode(),
@@ -358,11 +359,23 @@ export function createApp() {
   );
   app.get("/health/ready", (_req, res) => {
     const config = configurationStatus();
-    return res.status(config.ready ? 200 : 503).json({
-      status: config.ready ? "ready" : "not_ready",
+    const startupReady = app.locals.startupReady !== false;
+    const ready = config.ready && startupReady;
+    return res.status(ready ? 200 : 503).json({
       ...config,
+      status: ready ? "ready" : "not_ready",
+      startup: startupReady ? "ready" : "starting",
+      ready,
       timestamp: new Date().toISOString(),
     });
+  });
+  app.use("/api", (req, res, next) => {
+    if (app.locals.startupReady === false)
+      return res.status(503).json({
+        error: "RoutePulse is still initializing durable services",
+        retryAfterSeconds: 30,
+      });
+    return next();
   });
   app.post("/api/maps/route", async (req, res, next) => {
     try {
