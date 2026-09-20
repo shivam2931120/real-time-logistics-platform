@@ -69,6 +69,7 @@ All private endpoints require `Authorization: Bearer <JWT>`. Demo login accepts 
 | GET       | `/api/payments/reconciliation?days=30`             | admin/dispatcher            | tenant-scoped order/payment ledger reconciliation with explicit gaps         |
 | GET/POST  | `/api/payments/settlements`, `/api/payments/settlements/import` | admin/dispatcher | list or import bounded provider settlement CSV rows for review |
 | PATCH     | `/api/payments/settlements/:id`                    | admin                         | accept/reject an imported settlement anomaly with an audit event |
+| POST      | `/api/webhooks/razorpay`                           | Razorpay signature            | idempotently record captured/failed payments and refund or dispute events; refund/chargeback rows remain reviewable |
 | GET       | `/api/alerts/operations`                            | admin/dispatcher/driver     | thresholded stale-GPS, route-deviation and excessive-dwell signals           |
 | GET       | `/api/drivers`                                      | dispatcher/admin                 | tenant fleet state                            |
 | GET       | `/api/drivers/:id/locations?limit=100`              | dispatcher/admin                 | recent persisted GPS history                  |

@@ -26,6 +26,7 @@ import { estimateEta } from "./services/eta.js";
 import {
   createCheckout,
   orderIdForRazorpayOrder,
+  orderIdForRazorpayPayment,
   paymentMode,
   verifyRazorpayPayment,
   verifyRazorpayWebhook,
@@ -101,6 +102,7 @@ import { listSlaTasks, updateSlaTask } from "./services/slaInbox.js";
 import {
   importSettlementCsv,
   listSettlementRows,
+  recordProviderSettlementEvent,
   reviewSettlement,
 } from "./services/settlements.js";
 import { parseBulkOrderCsv } from "./services/bulkOrders.js";
@@ -443,7 +445,7 @@ export function createApp() {
               order_id?: string;
               amount?: number;
               currency?: string;
-              notes?: { routepulseOrderId?: string };
+              notes?: { routepulseOrderId?: string; organizationId?: string };
             };
           };
           order?: {
@@ -451,25 +453,54 @@ export function createApp() {
               id?: string;
               amount?: number;
               currency?: string;
-              notes?: { routepulseOrderId?: string };
+              notes?: { routepulseOrderId?: string; organizationId?: string };
+            };
+          };
+          refund?: {
+            entity?: {
+              id?: string;
+              payment_id?: string;
+              amount?: number;
+              currency?: string;
+              status?: string;
+              created_at?: number;
+              notes?: { routepulseOrderId?: string; organizationId?: string };
+            };
+          };
+          dispute?: {
+            entity?: {
+              id?: string;
+              payment_id?: string;
+              amount?: number;
+              currency?: string;
+              status?: string;
+              created_at?: number;
+              notes?: { routepulseOrderId?: string; organizationId?: string };
             };
           };
         };
       };
       const entity = body.payload?.payment?.entity;
       const orderEntity = body.payload?.order?.entity;
+      const refundEntity = body.payload?.refund?.entity;
+      const disputeEntity = body.payload?.dispute?.entity;
+      const settlementEntity = refundEntity || disputeEntity;
       const providerOrder = entity?.order_id || orderEntity?.id;
+      const paymentId = entity?.id || settlementEntity?.payment_id;
+      const notes = entity?.notes || settlementEntity?.notes || orderEntity?.notes;
       const localId =
-        entity?.notes?.routepulseOrderId ||
-        body.payload?.order?.entity?.notes?.routepulseOrderId ||
-        (providerOrder ? await orderIdForRazorpayOrder(providerOrder) : undefined);
-      const eventKey = `${body.event || "unknown"}:${providerOrder || "none"}:${entity?.id || "none"}`;
+        notes?.routepulseOrderId ||
+        (providerOrder ? await orderIdForRazorpayOrder(providerOrder) : undefined) ||
+        (paymentId ? await orderIdForRazorpayPayment(paymentId) : undefined);
+      const providerRef = settlementEntity?.id || entity?.id || providerOrder || "none";
+      const eventName = body.event || "unknown";
+      const eventKey = `${eventName}:${providerOrder || paymentId || "none"}:${providerRef}`;
       if (!(await recordPaymentWebhook({ eventKey, eventName: body.event || "unknown", payload: body })))
         return res.status(200).json({ received: true, duplicate: true });
       if (localId) {
         const order = orders.find((o) => o.id === localId || asUuid(o.id) === localId);
-        const captured = ["payment.captured", "order.paid"].includes(body.event || "");
-        const failed = ["payment.failed", "order.payment_failed"].includes(body.event || "");
+        const captured = ["payment.captured", "order.paid"].includes(eventName);
+        const failed = ["payment.failed", "order.payment_failed"].includes(eventName);
         const amountMinor = Number(entity?.amount ?? orderEntity?.amount ?? 0);
         const currency = String(entity?.currency ?? orderEntity?.currency ?? "").trim();
         if (order && captured &&
@@ -509,6 +540,37 @@ export function createApp() {
             currency: order.currency,
           });
           await notifySafely(order, captured ? "payment_received" : "payment_failed");
+        }
+      }
+      const refundEvent = eventName.startsWith("refund.") || eventName === "payment.refunded";
+      const chargebackEvent = eventName.includes("dispute") || eventName.includes("chargeback");
+      if (settlementEntity && (refundEvent || chargebackEvent)) {
+        const order = orders.find((o) => o.id === localId || asUuid(o.id) === localId);
+        const organizationId = notes?.organizationId || order?.organizationId;
+        const amountMinor = Number(settlementEntity.amount ?? orderEntity?.amount ?? 0);
+        const currency = String(settlementEntity.currency ?? orderEntity?.currency ?? order?.currency ?? "").trim().toUpperCase();
+        if (organizationId && Number.isFinite(amountMinor) && amountMinor >= 0 && /^[A-Z]{3}$/.test(currency)) {
+          const settlement = await recordProviderSettlementEvent({
+            organizationId,
+            providerRef,
+            orderId: order?.id || localId,
+            trackingCode: order?.trackingCode,
+            providerAmount: amountMinor / 100,
+            currency,
+            providerStatus: chargebackEvent ? "chargeback" : "refunded",
+            note: `${eventName} webhook`,
+            settledAt: settlementEntity.created_at
+              ? new Date(settlementEntity.created_at * 1000).toISOString()
+              : new Date().toISOString(),
+          });
+          void dispatchIntegrationEvent(organizationId, "payment.settlement_recorded", {
+            orderId: settlement.orderId,
+            provider: settlement.provider,
+            providerRef: settlement.providerRef,
+            providerStatus: settlement.providerStatus,
+            amount: settlement.providerAmount,
+            currency: settlement.currency,
+          });
         }
       }
       return res.status(200).json({ received: true });

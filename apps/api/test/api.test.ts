@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import request from "supertest";
+import { createHmac } from "node:crypto";
 import { createApp } from "../src/app.js";
 import {
   auditRecords,
@@ -190,6 +191,76 @@ describe("API", () => {
       .send({ reviewStatus: "rejected", note: "Refund requires finance confirmation" });
     expect(reviewed.status).toBe(200);
     expect(reviewed.body.reviewStatus).toBe("rejected");
+  });
+  it("records idempotent refund and chargeback webhook events in the settlement ledger", async () => {
+    const secret = "routepulse-webhook-test-secret";
+    process.env.RAZORPAY_WEBHOOK_SECRET = secret;
+    const refundPayload = {
+      event: "refund.processed",
+      payload: {
+        refund: {
+          entity: {
+            id: "rfnd_webhook_test",
+            payment_id: "pay_webhook_test",
+            amount: 34900,
+            currency: "INR",
+            created_at: 1_758_351_600,
+            notes: { routepulseOrderId: "ord_1001", organizationId: "org_demo" },
+          },
+        },
+      },
+    };
+    const refundBody = JSON.stringify(refundPayload);
+    const refundSignature = createHmac("sha256", secret).update(refundBody).digest("hex");
+    const first = await request(app)
+      .post("/api/webhooks/razorpay")
+      .set("x-razorpay-signature", refundSignature)
+      .set("content-type", "application/json")
+      .send(refundBody);
+    expect(first.status).toBe(200);
+    expect(first.body).toEqual({ received: true });
+    const duplicate = await request(app)
+      .post("/api/webhooks/razorpay")
+      .set("x-razorpay-signature", refundSignature)
+      .set("content-type", "application/json")
+      .send(refundBody);
+    expect(duplicate.status).toBe(200);
+    expect(duplicate.body.duplicate).toBe(true);
+
+    const chargebackPayload = {
+      event: "payment.dispute.created",
+      payload: {
+        dispute: {
+          entity: {
+            id: "disp_webhook_test",
+            payment_id: "pay_webhook_test",
+            amount: 34900,
+            currency: "INR",
+            notes: { routepulseOrderId: "ord_1001", organizationId: "org_demo" },
+          },
+        },
+      },
+    };
+    const chargebackBody = JSON.stringify(chargebackPayload);
+    const chargebackSignature = createHmac("sha256", secret).update(chargebackBody).digest("hex");
+    const chargeback = await request(app)
+      .post("/api/webhooks/razorpay")
+      .set("x-razorpay-signature", chargebackSignature)
+      .set("content-type", "application/json")
+      .send(chargebackBody);
+    expect(chargeback.status).toBe(200);
+    const admin = await token("admin");
+    const rows = await request(app)
+      .get("/api/payments/settlements")
+      .set("authorization", `Bearer ${admin}`);
+    expect(rows.status).toBe(200);
+    expect(rows.body.rows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ providerRef: "rfnd_webhook_test", matchStatus: "refund" }),
+        expect.objectContaining({ providerRef: "disp_webhook_test", matchStatus: "chargeback" }),
+      ]),
+    );
+    delete process.env.RAZORPAY_WEBHOOK_SECRET;
   });
   it("keeps customer addresses private and validates service territories", async () => {
     const customer = await token("customer");

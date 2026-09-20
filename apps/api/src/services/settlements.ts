@@ -86,6 +86,62 @@ function findOrder(orders: Order[], row: Record<string, string>) {
   );
 }
 
+async function persistRows(rows: PaymentSettlementRow[]) {
+  if (!dbEnabled || !pool) return;
+  try {
+    for (const row of rows) {
+      await pool.query(
+        `INSERT INTO payment_settlement_records
+           (id,organization_id,provider,provider_ref,order_id,tracking_code,order_amount_minor,provider_amount_minor,fee_amount_minor,net_amount_minor,currency,provider_status,match_status,review_status,note,settled_at,imported_at)
+         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+         ON CONFLICT(organization_id,provider,provider_ref) DO UPDATE SET
+           order_id=EXCLUDED.order_id,tracking_code=EXCLUDED.tracking_code,order_amount_minor=EXCLUDED.order_amount_minor,
+           provider_amount_minor=EXCLUDED.provider_amount_minor,fee_amount_minor=EXCLUDED.fee_amount_minor,net_amount_minor=EXCLUDED.net_amount_minor,
+           currency=EXCLUDED.currency,provider_status=EXCLUDED.provider_status,match_status=EXCLUDED.match_status,settled_at=EXCLUDED.settled_at,imported_at=EXCLUDED.imported_at`,
+        [
+          row.id,
+          organizationUuid(row.organizationId),
+          row.provider,
+          row.providerRef,
+          row.orderId ? asUuid(row.orderId) : null,
+          row.trackingCode || null,
+          row.orderAmount === undefined ? null : Math.round(row.orderAmount * 100),
+          Math.round(row.providerAmount * 100),
+          row.feeAmount === undefined ? null : Math.round(row.feeAmount * 100),
+          row.netAmount === undefined ? null : Math.round(row.netAmount * 100),
+          row.currency,
+          row.providerStatus,
+          row.matchStatus,
+          row.reviewStatus,
+          row.note || null,
+          row.settledAt || null,
+          row.importedAt,
+        ],
+      );
+    }
+  } catch {
+    // Keep the local ledger available while the database is temporarily unavailable.
+  }
+}
+
+function mergeRows(organizationId: string, imported: PaymentSettlementRow[]) {
+  const current = memory.get(organizationId) || [];
+  const byRef = new Map(current.map((item) => [`${item.provider}:${item.providerRef}`, item]));
+  for (const row of imported) {
+    const previous = byRef.get(`${row.provider}:${row.providerRef}`);
+    byRef.set(`${row.provider}:${row.providerRef}`, {
+      ...row,
+      id: previous?.id || row.id,
+      reviewStatus: previous?.reviewStatus || row.reviewStatus,
+      note: previous?.note || row.note,
+    });
+  }
+  memory.set(
+    organizationId,
+    [...byRef.values()].sort((a, b) => b.importedAt.localeCompare(a.importedAt)).slice(0, 1_000),
+  );
+}
+
 export async function importSettlementCsv(organizationId: string, csv: string) {
   if (csv.length > 100_000) throw new Error("Settlement CSV must be 100 KB or smaller");
   const rows = parseCsv(csv);
@@ -127,47 +183,64 @@ export async function importSettlementCsv(organizationId: string, csv: string) {
       importedAt,
     });
   }
-  const current = memory.get(organizationId) || [];
-  const byRef = new Map(current.map((item) => [`${item.provider}:${item.providerRef}`, item]));
-  for (const row of imported) byRef.set(`${row.provider}:${row.providerRef}`, row);
-  memory.set(organizationId, [...byRef.values()].sort((a, b) => b.importedAt.localeCompare(a.importedAt)).slice(0, 1_000));
-  if (dbEnabled && pool) {
-    try {
-      for (const row of imported) {
-        await pool.query(
-          `INSERT INTO payment_settlement_records
-             (id,organization_id,provider,provider_ref,order_id,tracking_code,order_amount_minor,provider_amount_minor,fee_amount_minor,net_amount_minor,currency,provider_status,match_status,review_status,note,settled_at,imported_at)
-           VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
-           ON CONFLICT(organization_id,provider,provider_ref) DO UPDATE SET
-             order_id=EXCLUDED.order_id,tracking_code=EXCLUDED.tracking_code,order_amount_minor=EXCLUDED.order_amount_minor,
-             provider_amount_minor=EXCLUDED.provider_amount_minor,fee_amount_minor=EXCLUDED.fee_amount_minor,net_amount_minor=EXCLUDED.net_amount_minor,
-             currency=EXCLUDED.currency,provider_status=EXCLUDED.provider_status,match_status=EXCLUDED.match_status,settled_at=EXCLUDED.settled_at,imported_at=EXCLUDED.imported_at`,
-          [
-            row.id,
-            organizationUuid(organizationId),
-            row.provider,
-            row.providerRef,
-            row.orderId ? asUuid(row.orderId) : null,
-            row.trackingCode || null,
-            row.orderAmount === undefined ? null : Math.round(row.orderAmount * 100),
-            Math.round(row.providerAmount * 100),
-            row.feeAmount === undefined ? null : Math.round(row.feeAmount * 100),
-            row.netAmount === undefined ? null : Math.round(row.netAmount * 100),
-            row.currency,
-            row.providerStatus,
-            row.matchStatus,
-            row.reviewStatus,
-            row.note || null,
-            row.settledAt || null,
-            row.importedAt,
-          ],
-        );
-      }
-    } catch {
-      // The in-memory import remains available while an additive migration is applied.
-    }
-  }
+  mergeRows(organizationId, imported);
+  await persistRows(imported);
   return summarize(organizationId, importedAt);
+}
+
+export interface ProviderSettlementEventInput {
+  organizationId: string;
+  providerRef: string;
+  orderId?: string;
+  trackingCode?: string;
+  providerAmount: number;
+  currency: string;
+  providerStatus: string;
+  feeAmount?: number;
+  netAmount?: number;
+  note?: string;
+  settledAt?: string;
+}
+
+export async function recordProviderSettlementEvent(input: ProviderSettlementEventInput) {
+  const providerRef = input.providerRef.trim();
+  const currency = input.currency.trim().toUpperCase();
+  if (!providerRef || providerRef.length > 160) throw new Error("Provider settlement reference is invalid");
+  if (!Number.isFinite(input.providerAmount) || input.providerAmount < 0)
+    throw new Error("Provider settlement amount is invalid");
+  if (!/^[A-Z]{3}$/.test(currency)) throw new Error("Provider settlement currency is invalid");
+  const order = store.listOrders(input.organizationId).find(
+    (candidate) =>
+      (input.orderId && (candidate.id === input.orderId || asUuid(candidate.id) === input.orderId)) ||
+      (input.trackingCode && candidate.trackingCode.toLowerCase() === input.trackingCode.toLowerCase()),
+  );
+  const importedAt = new Date().toISOString();
+  const existing = (memory.get(input.organizationId) || []).find(
+    (row) => row.provider === providerName && row.providerRef === providerRef,
+  );
+  const matchStatus = statusFor(order, input.providerStatus, input.providerAmount, currency);
+  const row: PaymentSettlementRow = {
+    id: existing?.id || crypto.randomUUID(),
+    organizationId: input.organizationId,
+    provider: providerName,
+    providerRef,
+    orderId: order?.id,
+    trackingCode: order?.trackingCode || input.trackingCode,
+    orderAmount: order?.amount,
+    providerAmount: input.providerAmount,
+    feeAmount: input.feeAmount,
+    netAmount: input.netAmount,
+    currency,
+    providerStatus: input.providerStatus,
+    matchStatus,
+    reviewStatus: existing?.reviewStatus || (matchStatus === "matched" ? "accepted" : "pending"),
+    note: input.note || existing?.note,
+    settledAt: input.settledAt,
+    importedAt,
+  };
+  mergeRows(input.organizationId, [row]);
+  await persistRows([row]);
+  return row;
 }
 
 async function loadPersisted(organizationId: string) {

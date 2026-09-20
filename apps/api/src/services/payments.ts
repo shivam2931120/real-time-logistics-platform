@@ -80,6 +80,10 @@ export async function orderIdForRazorpayOrder(razorpayOrderId: string) {
   );
 }
 
+export async function orderIdForRazorpayPayment(razorpayPaymentId: string) {
+  return paymentOrderId("razorpay_payment", razorpayPaymentId);
+}
+
 export function verifyRazorpayWebhook(raw: Buffer, signature: string) {
   if (!process.env.RAZORPAY_WEBHOOK_SECRET) return false;
   const expected = createHmac("sha256", process.env.RAZORPAY_WEBHOOK_SECRET)

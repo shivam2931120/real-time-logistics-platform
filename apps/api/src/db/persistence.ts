@@ -48,6 +48,7 @@ const organizationUuid = (value: string) =>
   value === demoOrganizationId ? demoOrganizationUuid : asUuid(value);
 const organizationDomainId = (value: string) =>
   value === demoOrganizationUuid ? demoOrganizationId : value;
+const paymentWebhookMemory = new Set<string>();
 const localId = (value: string, candidates: Array<{ id: string }>) =>
   candidates.find((x) => asUuid(x.id) === value)?.id || value;
 const iso = (value: Date | string) =>
@@ -577,7 +578,11 @@ export async function recordPaymentWebhook(input: {
   eventName: string;
   payload: unknown;
 }) {
-  if (!dbEnabled || !pool) return true;
+  if (!dbEnabled || !pool) {
+    if (paymentWebhookMemory.has(input.eventKey)) return false;
+    paymentWebhookMemory.add(input.eventKey);
+    return true;
+  }
   const result = await pool.query(
     `INSERT INTO payment_webhook_events(id,provider,event_key,event_name,payload) VALUES($1,$2,$3,$4,$5::jsonb) ON CONFLICT(event_key) DO NOTHING`,
     [
