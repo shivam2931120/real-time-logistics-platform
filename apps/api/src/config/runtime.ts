@@ -25,8 +25,11 @@ export const configurationStatus = () => {
   if (environment === "production") {
     if (!dbEnabled) missing.push("DATABASE_URL");
     if (value("JWT_SECRET").length < 32) missing.push("JWT_SECRET (32+ characters)");
-    if (auth === "clerk" && !value("CLERK_SECRET_KEY"))
-      missing.push("CLERK_SECRET_KEY");
+    if (auth === "clerk") {
+      if (!value("CLERK_SECRET_KEY")) missing.push("CLERK_SECRET_KEY");
+      if (!value("CLERK_WEBHOOK_SIGNING_SECRET"))
+        missing.push("CLERK_WEBHOOK_SIGNING_SECRET");
+    }
     if (!value("WEB_ORIGIN")) missing.push("WEB_ORIGIN");
   }
   if (queue === "bullmq" && !value("REDIS_URL")) missing.push("REDIS_URL");

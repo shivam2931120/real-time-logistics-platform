@@ -30,6 +30,33 @@ const validRole = (value: unknown): Role =>
     ? (value as Role)
     : "customer";
 
+const sleep = (milliseconds: number) =>
+  new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
+
+export function isSafeWebhookUrl(value: string, environment = process.env.APP_ENV || "development") {
+  try {
+    const url = new URL(value);
+    if (!["http:", "https:"].includes(url.protocol) || url.username || url.password)
+      return false;
+    if (environment === "production") {
+      const hostname = url.hostname.toLowerCase();
+      if (
+        hostname === "localhost" ||
+        hostname.endsWith(".localhost") ||
+        hostname === "0.0.0.0" ||
+        hostname === "::1" ||
+        /^(10\.|127\.|169\.254\.|192\.168\.)/.test(hostname) ||
+        /^172\.(1[6-9]|2\d|3[01])\./.test(hostname) ||
+        hostname.endsWith(".internal")
+      )
+        return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function createIntegrationApiKey(input: {
   organizationId: string;
   createdBy: string;
@@ -258,17 +285,30 @@ export async function dispatchIntegrationEvent(
   await Promise.allSettled(
     targets.map(async (target) => {
       const signature = createHmac("sha256", target.secret).update(body).digest("hex");
-      await fetch(target.url, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "user-agent": "RoutePulse-Webhooks/1.0",
-          "x-routepulse-event": event,
-          "x-routepulse-signature": `sha256=${signature}`,
-        },
-        body,
-        signal: AbortSignal.timeout(5_000),
-      });
+      let lastError: unknown;
+      for (let attempt = 1; attempt <= 3; attempt += 1) {
+        try {
+          const response = await fetch(target.url, {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              "user-agent": "RoutePulse-Webhooks/1.0",
+              "x-routepulse-event": event,
+              "x-routepulse-delivery-attempt": String(attempt),
+              "x-routepulse-signature": `sha256=${signature}`,
+            },
+            body,
+            signal: AbortSignal.timeout(5_000),
+          });
+          if (response.ok) return;
+          lastError = new Error(`Webhook responded with HTTP ${response.status}`);
+          if (response.status < 500 && response.status !== 429) break;
+        } catch (error) {
+          lastError = error;
+        }
+        if (attempt < 3) await sleep(250 * 2 ** (attempt - 1));
+      }
+      if (lastError) throw lastError;
     }),
   );
 }

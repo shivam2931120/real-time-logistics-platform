@@ -80,6 +80,7 @@ import {
   listIntegrationApiKeys,
   listIntegrationWebhooks,
   revokeIntegrationApiKey,
+  isSafeWebhookUrl,
 } from "./services/integrations.js";
 
 const coordinate = z.object({
@@ -457,6 +458,13 @@ export function createApp() {
             restore(order, snapshot);
             throw error;
           }
+          void dispatchIntegrationEvent(order.organizationId, captured ? "payment.captured" : "payment.failed", {
+            orderId: order.id,
+            provider: "razorpay_payment",
+            providerRef: entity?.id,
+            amount: order.amount,
+            currency: order.currency,
+          });
           await notifySafely(order, captured ? "payment_received" : "payment_failed");
         }
       }
@@ -1775,7 +1783,7 @@ export function createApp() {
     try {
       const body = z
         .object({
-          url: z.string().url().refine((value) => ["http:", "https:"].includes(new URL(value).protocol), "Webhook URL must use HTTP or HTTPS"),
+          url: z.string().url().refine((value) => isSafeWebhookUrl(value, runtimeEnvironment()), "Webhook URL is not allowed"),
           events: z.array(z.string().trim().min(3).max(80)).min(1).max(30).default(["*"]),
         })
         .parse(req.body);
@@ -2017,6 +2025,12 @@ export function createApp() {
           restore(order, snapshot);
           throw error;
         }
+        await audit(req.user!, "payment.captured", "order", order.id, {
+          provider: "razorpay_payment",
+          providerRef: input.razorpayPaymentId,
+          amount: order.amount,
+          currency: order.currency,
+        });
         await notifySafely(order, "payment_received");
         return res.json(order);
       } catch (e) {
@@ -2063,6 +2077,12 @@ export function createApp() {
           restore(order, snapshot);
           throw error;
         }
+        await audit(req.user!, "payment.captured", "order", order.id, {
+          provider: "demo_payment",
+          providerRef: `demo_${order.id}`,
+          amount: order.amount,
+          currency: order.currency,
+        });
         await notifySafely(order, "payment_received");
         return res.json(order);
       } catch (e) {
