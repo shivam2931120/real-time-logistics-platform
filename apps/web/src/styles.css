@@ -4455,6 +4455,23 @@ td {
   flex-wrap: wrap;
   margin-top: 10px;
 }
+
+.analytics-cost-entry {
+  margin-top: 20px;
+}
+
+.analytics-cost-entry .panel-copy {
+  margin: -8px 0 18px;
+  color: var(--text-secondary);
+}
+
+.analytics-cost-entry .inline-form {
+  align-items: end;
+}
+
+.analytics-cost-entry label {
+  min-width: 130px;
+}
 .analytics-footnotes span {
   display: flex;
   align-items: center;

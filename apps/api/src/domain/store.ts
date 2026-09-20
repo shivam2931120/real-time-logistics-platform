@@ -14,6 +14,8 @@ import type {
   SupportTicket,
   CustomerAddressBookEntry,
   ServiceTerritory,
+  OperatingCostCategory,
+  OperatingCostRecord,
 } from "@routepulse/shared";
 import { createHash, randomUUID } from "node:crypto";
 import { assertTransition } from "./stateMachine.js";
@@ -207,6 +209,7 @@ export const supportTickets: SupportTicket[] = [];
 export const supportMessages: SupportMessage[] = [];
 export const customerAddressBook: CustomerAddressBookEntry[] = [];
 export const serviceTerritories: ServiceTerritory[] = [];
+export const operatingCosts: OperatingCostRecord[] = [];
 export const organizationSettings: OrganizationSettings = {
   organizationId: org,
   name: "RoutePulse",
@@ -247,6 +250,44 @@ export const store = {
     orders.filter((o) => o.organizationId === tenant),
   getOrder: (id: unknown, tenant: string) =>
     orders.find((o) => o.id === String(id) && o.organizationId === tenant),
+  listOperatingCosts: (tenant: string, since?: string) =>
+    operatingCosts.filter(
+      (record) =>
+        record.organizationId === tenant &&
+        (!since || record.incurredAt >= since),
+    ),
+  createOperatingCost(input: {
+    organizationId: string;
+    category: OperatingCostCategory;
+    amount: number;
+    currency: string;
+    incurredAt: string;
+    driverId?: string;
+    routeRunId?: string;
+    note?: string;
+    source?: OperatingCostRecord["source"];
+  }) {
+    const createdAt = now();
+    const record: OperatingCostRecord = {
+      id: randomUUID(),
+      organizationId: input.organizationId,
+      category: input.category,
+      amount: input.amount,
+      currency: input.currency.toUpperCase(),
+      incurredAt: input.incurredAt,
+      driverId: input.driverId,
+      routeRunId: input.routeRunId,
+      note: input.note,
+      source: input.source || "manual",
+      createdAt,
+    };
+    operatingCosts.unshift(record);
+    return record;
+  },
+  removeOperatingCost(id: string) {
+    const index = operatingCosts.findIndex((record) => record.id === id);
+    if (index >= 0) operatingCosts.splice(index, 1);
+  },
   createOrder(
     input: Omit<
       Order,
@@ -383,6 +424,12 @@ export const store = {
     const costPerKm = Math.max(0, settings.costPerKm ?? 12);
     const costPerStop = Math.max(0, settings.costPerStop ?? 35);
     const estimatedOperatingCost = routeKm * costPerKm + tenantOrders.length * costPerStop;
+    const actualCosts = operatingCosts.filter(
+      (record) =>
+        record.organizationId === tenant &&
+        new Date(record.incurredAt).getTime() >= cutoff,
+    );
+    const actualOperatingCost = actualCosts.reduce((total, record) => total + record.amount, 0);
     const activeOrders = tenantOrders.filter((order) =>
       ["assigned", "picked_up", "in_transit"].includes(order.status),
     );
@@ -560,7 +607,12 @@ export const store = {
         costPerDelivery: tenantOrders.length ? +(estimatedOperatingCost / tenantOrders.length).toFixed(2) : 0,
         costPerKm,
         costPerStop,
-        basis: "estimated_direct_distance",
+        basis: actualCosts.length ? "actual_recorded_cost" : "estimated_direct_distance",
+        actualOperatingCost: actualCosts.length ? +actualOperatingCost.toFixed(2) : undefined,
+        actualCostPerDelivery: actualCosts.length && tenantOrders.length
+          ? +(actualOperatingCost / tenantOrders.length).toFixed(2)
+          : undefined,
+        recordedCostCount: actualCosts.length,
       },
       statusCounts: Object.fromEntries(
         [

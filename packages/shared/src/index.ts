@@ -465,7 +465,10 @@ export interface AnalyticsSummary {
     costPerDelivery: number;
     costPerKm: number;
     costPerStop: number;
-    basis: "estimated_direct_distance";
+    basis: "estimated_direct_distance" | "actual_recorded_cost";
+    actualOperatingCost?: number;
+    actualCostPerDelivery?: number;
+    recordedCostCount?: number;
   };
   statusCounts: Record<OrderStatus, number>;
   trend: Array<{ date: string; deliveries: number; revenue: number }>;
@@ -504,6 +507,20 @@ export interface AnalyticsSummary {
     onTimeRateDelta: number;
     completionRateDelta: number;
   };
+}
+export type OperatingCostCategory = "fuel" | "driver" | "toll" | "maintenance" | "other";
+export interface OperatingCostRecord {
+  id: string;
+  organizationId: string;
+  category: OperatingCostCategory;
+  amount: number;
+  currency: string;
+  incurredAt: string;
+  driverId?: string;
+  routeRunId?: string;
+  note?: string;
+  source: "manual" | "provider" | "import";
+  createdAt: string;
 }
 export interface ForecastPoint {
   date: string;

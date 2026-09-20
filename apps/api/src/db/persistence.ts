@@ -15,6 +15,7 @@ import type {
   SupportTicket,
   CustomerAddressBookEntry,
   ServiceTerritory,
+  OperatingCostRecord,
 } from "@routepulse/shared";
 import type { PoolClient } from "pg";
 import { pool, dbEnabled } from "./client.js";
@@ -31,6 +32,7 @@ import {
   supportTickets,
   customerAddressBook,
   serviceTerritories,
+  operatingCosts,
   store,
   users,
 } from "../domain/store.js";
@@ -113,6 +115,29 @@ export async function initializePersistence() {
   const territoryRows = await pool.query(
     `SELECT id::text,organization_id::text,name,polygon,active,created_at,updated_at FROM service_territories ORDER BY updated_at DESC`,
   );
+  let operatingCostRows: {
+    rows: Array<{
+      id: string;
+      organization_id: string;
+      category: string;
+      amount_minor: string | number;
+      currency: string;
+      incurred_at: string | Date;
+      driver_id: string | null;
+      route_run_id: string | null;
+      note: string | null;
+      source: string | null;
+      created_at: string | Date;
+    }>;
+  } = { rows: [] };
+  try {
+    operatingCostRows = await pool.query(
+      `SELECT id::text,organization_id::text,category,amount_minor,currency,incurred_at,driver_id::text,route_run_id::text,note,source,created_at FROM operating_cost_records ORDER BY incurred_at DESC LIMIT 5000`,
+    );
+  } catch {
+    // The additive cost table may not exist until the next database migration;
+    // keep the API bootable and let the write endpoint report the migration issue.
+  }
   const loadedDrivers = driverRows.rows.map((row) => ({
       id: localId(row.id, drivers),
       userId: localId(row.user_id, users),
@@ -153,6 +178,23 @@ export async function initializePersistence() {
     updatedAt: iso(row.updated_at),
   })) as ServiceTerritory[];
   serviceTerritories.splice(0, serviceTerritories.length, ...loadedTerritories);
+  operatingCosts.splice(
+    0,
+    operatingCosts.length,
+    ...(operatingCostRows.rows.map((row) => ({
+      id: row.id,
+      organizationId: organizationDomainId(row.organization_id),
+      category: row.category,
+      amount: Number(row.amount_minor) / 100,
+      currency: String(row.currency).trim(),
+      incurredAt: iso(row.incurred_at),
+      driverId: row.driver_id ? localId(row.driver_id, drivers) : undefined,
+      routeRunId: row.route_run_id || undefined,
+      note: row.note || undefined,
+      source: row.source || "manual",
+      createdAt: iso(row.created_at),
+    })) as OperatingCostRecord[]),
+  );
   if (!preserveShowcaseFixtures) drivers.splice(0, drivers.length, ...loadedDrivers);
   else {
     const loadedShowcaseDrivers = loadedDrivers.filter(
@@ -746,6 +788,27 @@ export async function persistSettings(settings: OrganizationSettings) {
         costPerStop: settings.costPerStop,
       }),
       organizationUuid(settings.organizationId),
+    ],
+  );
+}
+export async function persistOperatingCost(record: OperatingCostRecord) {
+  if (!dbEnabled || !pool) return;
+  await pool.query(
+    `INSERT INTO operating_cost_records(id,organization_id,category,amount_minor,currency,incurred_at,driver_id,route_run_id,note,source,created_at)
+     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+     ON CONFLICT(id) DO UPDATE SET category=EXCLUDED.category,amount_minor=EXCLUDED.amount_minor,currency=EXCLUDED.currency,incurred_at=EXCLUDED.incurred_at,driver_id=EXCLUDED.driver_id,route_run_id=EXCLUDED.route_run_id,note=EXCLUDED.note,source=EXCLUDED.source`,
+    [
+      asUuid(record.id),
+      organizationUuid(record.organizationId),
+      record.category,
+      Math.round(record.amount * 100),
+      record.currency,
+      record.incurredAt,
+      record.driverId ? asUuid(record.driverId) : null,
+      record.routeRunId ? asUuid(record.routeRunId) : null,
+      record.note || null,
+      record.source,
+      record.createdAt,
     ],
   );
 }

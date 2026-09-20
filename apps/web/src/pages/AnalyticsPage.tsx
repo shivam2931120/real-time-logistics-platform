@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import {
   Area,
   AreaChart,
@@ -18,6 +18,7 @@ import {
   Gauge,
   MapPinned,
   PackageCheck,
+  Plus,
   ShieldCheck,
   TrendingUp,
   Truck,
@@ -48,6 +49,14 @@ export function AnalyticsPage({
   const [forecastLoading, setForecastLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
   const [error, setError] = useState("");
+  const [costSubmitting, setCostSubmitting] = useState(false);
+  const [costMessage, setCostMessage] = useState("");
+  const [costDraft, setCostDraft] = useState({
+    category: "fuel" as "fuel" | "driver" | "toll" | "maintenance" | "other",
+    amount: "",
+    incurredAt: new Date().toISOString().slice(0, 10),
+    note: "",
+  });
 
   useEffect(() => {
     if (analytics && days === 7) setSummary(analytics);
@@ -102,6 +111,32 @@ export function AnalyticsPage({
       setExporting(false);
     }
   };
+  const recordCost = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const amount = Number(costDraft.amount);
+    if (!Number.isFinite(amount) || amount < 0) {
+      setCostMessage("Enter a valid non-negative amount.");
+      return;
+    }
+    setCostSubmitting(true);
+    setCostMessage("");
+    try {
+      await api.createOperatingCost({
+        category: costDraft.category,
+        amount,
+        currency: "INR",
+        incurredAt: new Date(`${costDraft.incurredAt}T12:00:00`).toISOString(),
+        note: costDraft.note.trim() || undefined,
+      });
+      setCostDraft((current) => ({ ...current, amount: "", note: "" }));
+      setCostMessage("Recorded. Refresh analytics to include the new cost.");
+      setSummary(await api.analytics(days));
+    } catch (reason) {
+      setCostMessage(reason instanceof Error ? reason.message : "Unable to record cost");
+    } finally {
+      setCostSubmitting(false);
+    }
+  };
 
   if (!summary)
     return (
@@ -153,8 +188,10 @@ export function AnalyticsPage({
     ],
     [
       "Operating cost",
-      money(summary.cost?.estimatedOperatingCost ?? 0),
-      `${money(summary.cost?.costPerDelivery ?? 0)} estimated per delivery`,
+      money(summary.cost?.actualOperatingCost ?? summary.cost?.estimatedOperatingCost ?? 0),
+      summary.cost?.basis === "actual_recorded_cost"
+        ? `${money(summary.cost.actualCostPerDelivery ?? 0)} recorded per delivery`
+        : `${money(summary.cost?.costPerDelivery ?? 0)} estimated per delivery`,
       Truck,
     ],
   ] as const;
@@ -221,6 +258,45 @@ export function AnalyticsPage({
           </article>
         ))}
       </div>
+
+      <article className="panel analytics-cost-entry">
+        <div className="panel-head">
+          <div>
+            <span className="eyebrow">Cost ledger</span>
+            <h3>Record an operating cost</h3>
+          </div>
+          <Plus />
+        </div>
+        <p className="panel-copy">Capture fuel, driver, toll and maintenance spend so estimates can be compared with actuals.</p>
+        <form className="inline-form" onSubmit={(event) => void recordCost(event)}>
+          <label>
+            Category
+            <select value={costDraft.category} onChange={(event) => setCostDraft({ ...costDraft, category: event.target.value as typeof costDraft.category })}>
+              <option value="fuel">Fuel</option>
+              <option value="driver">Driver</option>
+              <option value="toll">Toll</option>
+              <option value="maintenance">Maintenance</option>
+              <option value="other">Other</option>
+            </select>
+          </label>
+          <label>
+            Amount (₹)
+            <input inputMode="decimal" type="number" min="0" step="0.01" value={costDraft.amount} onChange={(event) => setCostDraft({ ...costDraft, amount: event.target.value })} required />
+          </label>
+          <label>
+            Incurred on
+            <input type="date" value={costDraft.incurredAt} onChange={(event) => setCostDraft({ ...costDraft, incurredAt: event.target.value })} required />
+          </label>
+          <label>
+            Note
+            <input value={costDraft.note} maxLength={500} onChange={(event) => setCostDraft({ ...costDraft, note: event.target.value })} placeholder="Optional reference" />
+          </label>
+          <button className="button primary" type="submit" disabled={costSubmitting}>
+            {costSubmitting ? "Saving…" : "Record cost"}
+          </button>
+        </form>
+        {costMessage && <p className="inline-notice" role="status">{costMessage}</p>}
+      </article>
 
       <div className="analytics-charts">
         <article className="panel">

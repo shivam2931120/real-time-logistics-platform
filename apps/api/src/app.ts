@@ -49,6 +49,7 @@ import {
   persistParcelScanAndOrder,
   persistProofAndDelivery,
   persistSettings,
+  persistOperatingCost,
   persistSupportMessage,
   persistSupportTicket,
   persistSupportTicketWithMessage,
@@ -2682,6 +2683,71 @@ export function createApp() {
           .object({ days: z.coerce.number().int().min(7).max(90).default(7) })
           .parse(req.query);
         return res.json(store.summary(req.user!.organizationId, days));
+      } catch (error) {
+        next(error);
+      }
+    },
+  );
+  app.get(
+    "/api/analytics/costs",
+    permit("admin", "dispatcher"),
+    (req, res, next) => {
+      try {
+        const { days } = z
+          .object({ days: z.coerce.number().int().min(7).max(90).default(30) })
+          .parse(req.query);
+        const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+        return res.json(store.listOperatingCosts(req.user!.organizationId, since));
+      } catch (error) {
+        next(error);
+      }
+    },
+  );
+  app.post(
+    "/api/analytics/costs",
+    permit("admin", "dispatcher"),
+    async (req, res, next) => {
+      try {
+        const input = z
+          .object({
+            category: z.enum(["fuel", "driver", "toll", "maintenance", "other"]),
+            amount: z.number().finite().min(0).max(100_000_000),
+            currency: z.string().trim().regex(/^[A-Za-z]{3}$/).default("INR"),
+            incurredAt: z.coerce.date(),
+            driverId: z.string().trim().min(1).max(120).optional(),
+            routeRunId: z.string().trim().min(1).max(120).optional(),
+            note: z.string().trim().max(500).optional(),
+          })
+          .parse(req.body);
+        if (input.driverId) {
+          const driver = drivers.find((candidate) => candidate.id === input.driverId);
+          const driverUser = driver && users.find((user) => user.id === driver.userId);
+          if (!driver || driverUser?.organizationId !== req.user!.organizationId)
+            return res.status(422).json({ error: "Driver does not belong to this organization" });
+        }
+        const record = store.createOperatingCost({
+          organizationId: req.user!.organizationId,
+          category: input.category,
+          amount: input.amount,
+          currency: input.currency.toUpperCase(),
+          incurredAt: input.incurredAt.toISOString(),
+          driverId: input.driverId,
+          routeRunId: input.routeRunId,
+          note: input.note,
+        });
+        try {
+          await persistOperatingCost(record);
+        } catch (error) {
+          store.removeOperatingCost(record.id);
+          throw error;
+        }
+        await audit(req.user!, "analytics.operating_cost_recorded", "operating_cost", record.id, {
+          category: record.category,
+          amount: record.amount,
+          currency: record.currency,
+          source: record.source,
+        });
+        return res.status(201).json(record);
       } catch (error) {
         next(error);
       }

@@ -12,6 +12,7 @@ import {
   parcelScans,
   customerAddressBook,
   serviceTerritories,
+  operatingCosts,
   supportMessages,
   supportTickets,
   users,
@@ -40,6 +41,7 @@ describe("API", () => {
     parcelScans.splice(0);
     customerAddressBook.splice(0);
     serviceTerritories.splice(0);
+    operatingCosts.splice(0);
     supportMessages.splice(0);
     supportTickets.splice(0);
     users.find((user) => user.id === "u_customer")!.role = "customer";
@@ -114,6 +116,25 @@ describe("API", () => {
         zonePerformance: expect.any(Array),
       }),
     );
+  });
+  it("records tenant-scoped operating costs and reports actual cost basis", async () => {
+    const auth = await token("dispatcher");
+    const created = await request(app)
+      .post("/api/analytics/costs")
+      .set("authorization", `Bearer ${auth}`)
+      .send({ category: "fuel", amount: 420, currency: "INR", incurredAt: new Date().toISOString(), note: "Fleet refuel" });
+    expect(created.status).toBe(201);
+    expect(created.body).toEqual(expect.objectContaining({ category: "fuel", amount: 420, source: "manual" }));
+    const summary = await request(app)
+      .get("/api/analytics/summary?days=30")
+      .set("authorization", `Bearer ${auth}`);
+    expect(summary.status).toBe(200);
+    expect(summary.body.cost).toEqual(expect.objectContaining({ basis: "actual_recorded_cost", actualOperatingCost: 420, recordedCostCount: 1 }));
+    const listed = await request(app)
+      .get("/api/analytics/costs?days=30")
+      .set("authorization", `Bearer ${auth}`);
+    expect(listed.status).toBe(200);
+    expect(listed.body).toEqual(expect.arrayContaining([expect.objectContaining({ id: created.body.id })]));
   });
   it("returns an explainable tenant-scoped demand forecast", async () => {
     const auth = await token("dispatcher");

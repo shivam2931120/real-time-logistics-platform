@@ -32,6 +32,7 @@ import type {
   SupportTicket,
   TrackingSnapshot,
   User,
+  OperatingCostRecord,
 } from "@routepulse/shared";
 export type { RouteOptimizationConstraints, RoutePlan } from "@routepulse/shared";
 const base = import.meta.env.VITE_API_URL || "http://127.0.0.1:4000";
@@ -197,6 +198,13 @@ export const api = {
     request<AnalyticsSummary>(`/api/analytics/summary?days=${days}`),
   analyticsForecast: (days = 14) =>
     request<ForecastSummary>(`/api/analytics/forecast?days=${days}`),
+  operatingCosts: (days = 30) =>
+    request<OperatingCostRecord[]>(`/api/analytics/costs?days=${days}`),
+  createOperatingCost: (data: Omit<OperatingCostRecord, "id" | "organizationId" | "createdAt" | "source">) =>
+    request<OperatingCostRecord>("/api/analytics/costs", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
   routeRuns: () => request<RouteRun[]>("/api/route-runs"),
   createRouteRun: (data: { driverId: string; orderIds: string[]; constraints?: RouteOptimizationConstraints }) =>
     request<RouteRun>("/api/route-runs", { method: "POST", body: JSON.stringify(data) }),
