@@ -19,9 +19,10 @@ import type {
   OrderStatus,
   User,
 } from "@routepulse/shared";
-import { api } from "../lib/api";
+import { api, ApiError } from "../lib/api";
 import { readCurrentLocation, watchLocation } from "../lib/geolocation";
 import { locationQueue, type QueuedLocation } from "../lib/locationQueue";
+import { driverActionQueue, type QueuedDriverAction } from "../lib/driverActionQueue";
 import { LiveMap } from "../components/LiveMap";
 
 const next: Partial<Record<OrderStatus, OrderStatus>> = {
@@ -57,8 +58,11 @@ export function DriverWorkspace({
   const [scanner, setScanner] = useState(false);
   const [driver, setDriver] = useState<Driver | null>(null);
   const [queueSize, setQueueSize] = useState(0);
+  const [actionQueueSize, setActionQueueSize] = useState(0);
+  const [actionSyncState, setActionSyncState] = useState<"live" | "offline" | "syncing" | "queued">("live");
   const [syncState, setSyncState] = useState<"live" | "offline" | "syncing" | "queued">("live");
   const queue = useMemo(() => locationQueue(user.id), [user.id]);
+  const actions = useMemo(() => driverActionQueue(user.id), [user.id]);
   useEffect(() => {
     let cancelled = false;
     void api
@@ -67,6 +71,7 @@ export function DriverWorkspace({
         if (!cancelled) {
           setDriver(value);
           setQueueSize(queue.count());
+          setActionQueueSize(actions.count());
         }
       })
       .catch((reason) => {
@@ -76,7 +81,60 @@ export function DriverWorkspace({
     return () => {
       cancelled = true;
     };
-  }, [queue]);
+  }, [actions, queue]);
+  const sendAction = async (action: QueuedDriverAction) => {
+    switch (action.type) {
+      case "accept":
+        return api.accept(action.orderId);
+      case "reject":
+        return api.reject(action.orderId, String(action.data.reason || ""));
+      case "status":
+        return api.status(action.orderId, action.data.status as OrderStatus);
+      case "scan":
+        return api.scan(action.orderId, action.data as { parcelCode: string; stage: "pickup" | "hub" | "delivery" });
+      case "proof":
+        return api.proof(action.orderId, action.data as Parameters<typeof api.proof>[1]);
+    }
+  };
+  const runAction = async (
+    action: Omit<QueuedDriverAction, "id" | "createdAt" | "attempts">,
+  ): Promise<"sent" | "queued"> => {
+    if (!navigator.onLine) {
+      setActionQueueSize(actions.enqueue(action));
+      setActionSyncState("offline");
+      return "queued";
+    }
+    try {
+      await sendAction({ ...action, id: "live", createdAt: new Date().toISOString(), attempts: 0 });
+      setActionQueueSize(actions.count());
+      setActionSyncState("live");
+      return "sent";
+    } catch (reason) {
+      if (reason instanceof ApiError && reason.status < 500 && reason.status !== 408) throw reason;
+      setActionQueueSize(actions.enqueue(action));
+      setActionSyncState("queued");
+      return "queued";
+    }
+  };
+  useEffect(() => {
+    let stopped = false;
+    const flush = async () => {
+      if (!navigator.onLine || stopped || !actions.count()) return;
+      setActionSyncState("syncing");
+      const result = await actions.flush(sendAction);
+      if (stopped) return;
+      setActionQueueSize(result.remaining);
+      setActionSyncState(result.remaining ? "queued" : "live");
+      if (result.sent) await reload();
+    };
+    const online = () => void flush();
+    window.addEventListener("online", online);
+    void flush();
+    return () => {
+      stopped = true;
+      window.removeEventListener("online", online);
+    };
+  }, [actions, reload]);
   useEffect(() => {
     if (!sharing || !driver) {
       setLocationError("");
@@ -174,14 +232,14 @@ export function DriverWorkspace({
   const advance = async () => {
     const status = next[active.status];
     if (status) {
-      await api.status(active.id, status);
+      await runAction({ type: "status", orderId: active.id, data: { status } });
       await reload();
     } else if (active.status === "in_transit") setProof(true);
   };
   const reject = async () => {
     const reason = window.prompt("Why can you not take this delivery?");
     if (!reason) return;
-    await api.reject(active.id, reason);
+    await runAction({ type: "reject", orderId: active.id, data: { reason } });
     await reload();
   };
   return (
@@ -207,6 +265,13 @@ export function DriverWorkspace({
                   : syncState === "queued"
                     ? `${queueSize} fix${queueSize === 1 ? "" : "es"} queued for retry`
                     : "Live GPS synced"}
+            </p>
+          )}
+          {actionQueueSize > 0 && (
+            <p className="location-sync-status" role="status">
+              {actionSyncState === "syncing"
+                ? "Syncing offline actions…"
+                : `${actionQueueSize} action${actionQueueSize === 1 ? "" : "s"} queued for retry`}
             </p>
           )}
           {locationError && (
@@ -275,7 +340,7 @@ export function DriverWorkspace({
             <button
               className="button primary"
               onClick={async () => {
-                await api.accept(active.id);
+                await runAction({ type: "accept", orderId: active.id, data: {} });
                 await reload();
               }}
             >
@@ -307,6 +372,7 @@ export function DriverWorkspace({
           order={active}
           close={() => setProof(false)}
           saved={reload}
+          runAction={runAction}
           fail={setError}
         />
       )}{" "}
@@ -323,6 +389,7 @@ export function DriverWorkspace({
           order={active}
           close={() => setScanner(false)}
           saved={reload}
+          runAction={runAction}
           fail={setError}
         />
       )}
@@ -334,11 +401,13 @@ function ScanModal({
   order,
   close,
   saved,
+  runAction,
   fail,
 }: {
   order: Order;
   close: () => void;
   saved: () => void;
+  runAction: (action: Omit<QueuedDriverAction, "id" | "createdAt" | "attempts">) => Promise<"sent" | "queued">;
   fail: (message: string) => void;
 }) {
   const [stage, setStage] = useState<"pickup" | "hub" | "delivery">(
@@ -401,9 +470,9 @@ function ScanModal({
   const submit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     try {
-      await api.scan(order.id, { parcelCode: code, stage });
+      const result = await runAction({ type: "scan", orderId: order.id, data: { parcelCode: code, stage } });
       close();
-      await saved();
+      if (result === "sent") await saved();
     } catch (reason) {
       fail(reason instanceof Error ? reason.message : "Unable to record scan");
     }
@@ -470,11 +539,13 @@ function ProofModal({
   order,
   close,
   saved,
+  runAction,
   fail,
 }: {
   order: Order;
   close: () => void;
   saved: () => void;
+  runAction: (action: Omit<QueuedDriverAction, "id" | "createdAt" | "attempts">) => Promise<"sent" | "queued">;
   fail: (value: string) => void;
 }) {
   const [signatureData, setSignatureData] = useState("");
@@ -504,15 +575,15 @@ function ProofModal({
       return;
     }
     try {
-      await api.proof(order.id, {
+      const result = await runAction({ type: "proof", orderId: order.id, data: {
         recipientName: String(form.get("name")),
         recipientPin: pin || undefined,
         parcelCode: parcelCode || undefined,
         signatureData: signatureData || undefined,
         photoData,
-      });
+      } });
       close();
-      await saved();
+      if (result === "sent") await saved();
     } catch (reason) {
       fail(reason instanceof Error ? reason.message : "Unable to save proof");
     }
