@@ -358,6 +358,19 @@ export interface SlaTask {
   createdAt: string;
   updatedAt: string;
 }
+export interface BulkOrderImportIssue {
+  row: number;
+  field?: string;
+  message: string;
+}
+export interface BulkOrderImportResult {
+  dryRun: boolean;
+  totalRows: number;
+  validRows: number;
+  invalidRows: number;
+  createdOrders: Order[];
+  issues: BulkOrderImportIssue[];
+}
 export interface TrackingSnapshot {
   trackingCode: string;
   customerName: string;

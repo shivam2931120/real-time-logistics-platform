@@ -8,6 +8,7 @@ import type {
   OrganizationSettings,
   PaymentReconciliationSummary,
   PaymentSettlementSummary,
+  BulkOrderImportResult,
   Role,
   ServiceTerritory,
   User,
@@ -18,7 +19,7 @@ export function AdminPage() {
   const [users, setUsers] = useState<User[]>([]);
   const [audit, setAudit] = useState<AuditRecord[]>([]);
   const [settings, setSettings] = useState<OrganizationSettings | null>(null);
-  const [tab, setTab] = useState<"team" | "settings" | "audit" | "integrations">("team");
+  const [tab, setTab] = useState<"team" | "settings" | "audit" | "integrations" | "imports">("team");
   const [billing, setBilling] = useState<BillingSummary | null>(null);
   const [reconciliation, setReconciliation] = useState<PaymentReconciliationSummary | null>(null);
   const [settlements, setSettlements] = useState<PaymentSettlementSummary | null>(null);
@@ -28,6 +29,8 @@ export function AdminPage() {
   const [keyName, setKeyName] = useState("Operations API");
   const [webhookUrl, setWebhookUrl] = useState("");
   const [settlementCsv, setSettlementCsv] = useState("");
+  const [orderCsv, setOrderCsv] = useState("");
+  const [orderImport, setOrderImport] = useState<BulkOrderImportResult | null>(null);
   const [territoryName, setTerritoryName] = useState("");
   const [territoryPolygon, setTerritoryPolygon] = useState("[{\"lat\":12.90,\"lng\":77.50},{\"lat\":13.05,\"lng\":77.50},{\"lat\":13.05,\"lng\":77.70},{\"lat\":12.90,\"lng\":77.70}]");
   const [revealedSecret, setRevealedSecret] = useState("");
@@ -85,6 +88,30 @@ export function AdminPage() {
     } finally {
       setBusy(false);
     }
+  };
+  const previewOrders = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (busy || !orderCsv.trim()) return;
+    setBusy(true); setError(""); setMessage("");
+    try {
+      const result = await api.importOrders(orderCsv, true);
+      setOrderImport(result);
+      setMessage(`${result.validRows} row${result.validRows === 1 ? "" : "s"} ready; ${result.invalidRows} rejected.`);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Unable to validate order CSV");
+    } finally { setBusy(false); }
+  };
+  const commitOrders = async () => {
+    if (busy || !orderCsv.trim() || !orderImport || orderImport.invalidRows > 0 || orderImport.validRows === 0) return;
+    setBusy(true); setError(""); setMessage("");
+    try {
+      const result = await api.importOrders(orderCsv, false, `bulk-orders-${crypto.randomUUID()}`);
+      setOrderImport(result);
+      setOrderCsv("");
+      setMessage(`Created ${result.createdOrders.length} delivery${result.createdOrders.length === 1 ? "" : "ies"}.`);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Unable to create imported orders");
+    } finally { setBusy(false); }
   };
   const reviewSettlement = async (id: string, reviewStatus: "accepted" | "rejected") => {
     if (busy) return;
@@ -234,7 +261,7 @@ export function AdminPage() {
         </p>
       )}
       <div className="admin-tabs">
-        {(["team", "settings", "integrations", "audit"] as const).map((value) => (
+        {(["team", "settings", "imports", "integrations", "audit"] as const).map((value) => (
           <button
             className={tab === value ? "active" : ""}
             onClick={() => setTab(value)}
@@ -398,6 +425,26 @@ export function AdminPage() {
               <strong>No audit events yet</strong>
             </div>
           )}
+        </div>
+      )}
+      {tab === "imports" && (
+        <div className="panel settings-form bulk-import-panel">
+          <div className="panel-head">
+            <div><span className="eyebrow">Batch dispatch</span><h3>Validated order import</h3></div>
+            <Copy />
+          </div>
+          <p className="muted-copy">Paste a CSV to preview row-level validation before creating deliveries. Maximum 200 rows and 100 KB per batch.</p>
+          <form onSubmit={previewOrders} className="settlement-import-form">
+            <textarea value={orderCsv} onChange={(event) => setOrderCsv(event.target.value)} rows={8} aria-label="Order import CSV" placeholder="customer_name,customer_email,pickup_label,pickup_lat,pickup_lng,dropoff_label,dropoff_lat,dropoff_lng,package_weight_kg,priority,amount,currency,promised_at\nAnanya Rao,ananya@example.com,Hub,12.97,77.59,Home,12.95,77.61,2,standard,250,INR,2026-09-22T12:00:00.000Z" />
+            <div className="inline-form">
+              <button className="button primary" disabled={busy || !orderCsv.trim()}>{busy ? "Checking…" : "Preview CSV"}</button>
+              <button type="button" className="button ghost" disabled={busy || !orderImport || orderImport.invalidRows > 0 || orderImport.validRows === 0} onClick={() => void commitOrders()}>Create deliveries</button>
+            </div>
+          </form>
+          {orderImport && <div className="bulk-import-result">
+            <div className="reconciliation-metrics"><span><strong>{orderImport.totalRows}</strong><small>rows</small></span><span><strong>{orderImport.validRows}</strong><small>valid</small></span><span><strong>{orderImport.invalidRows}</strong><small>rejected</small></span><span><strong>{orderImport.createdOrders.length}</strong><small>created</small></span></div>
+            {orderImport.issues.map((issue) => <div className="reconciliation-row" key={`${issue.row}-${issue.field || "row"}`}><span><strong>Row {issue.row}</strong><small>{issue.field || "row"} · {issue.message}</small></span><span className="reconciliation-status has-mismatch">REJECTED</span></div>)}
+          </div>}
         </div>
       )}
       {tab === "integrations" && (

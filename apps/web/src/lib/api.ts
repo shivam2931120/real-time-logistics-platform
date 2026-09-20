@@ -278,6 +278,12 @@ export const api = {
   slaInbox: (status?: SlaTask["status"]) => request<SlaTask[]>(`/api/sla/inbox${status ? `?status=${status}` : ""}`),
   updateSlaTask: (id: string, status: SlaTask["status"], assigneeId?: string) =>
     request<SlaTask>(`/api/sla/inbox/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ status, assigneeId }) }),
+  importOrders: (csv: string, dryRun = true, idempotencyKey?: string) =>
+    request<import("@routepulse/shared").BulkOrderImportResult>("/api/orders/import", {
+      method: "POST",
+      body: JSON.stringify({ csv, dryRun }),
+      ...(idempotencyKey ? { headers: { "Idempotency-Key": idempotencyKey } } : {}),
+    }),
   createException: (
     orderId: string,
     type: ExceptionType,

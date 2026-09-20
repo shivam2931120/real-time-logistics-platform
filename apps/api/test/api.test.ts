@@ -569,6 +569,35 @@ describe("API", () => {
     expect(acknowledged.body.status).toBe("acknowledged");
     expect(acknowledged.body.id).toBe(task.id);
   });
+  it("previews and idempotently commits bounded bulk order imports", async () => {
+    const auth = await token("dispatcher");
+    const csv = [
+      "customer_name,customer_email,pickup_label,pickup_lat,pickup_lng,dropoff_label,dropoff_lat,dropoff_lng,package_weight_kg,priority,amount,currency,promised_at,parcel_code",
+      `Bulk Customer,bulk@example.com,Hub,12.97,77.59,Home,12.95,77.61,2,standard,250,INR,${new Date(Date.now() + 3_600_000).toISOString()},PKG-BULK-001`,
+    ].join("\n");
+    const preview = await request(app)
+      .post("/api/orders/import")
+      .set("authorization", `Bearer ${auth}`)
+      .send({ csv, dryRun: true });
+    expect(preview.status).toBe(200);
+    expect(preview.body).toEqual(expect.objectContaining({ dryRun: true, totalRows: 1, validRows: 1, invalidRows: 0 }));
+
+    const key = "bulk-import-test-001";
+    const committed = await request(app)
+      .post("/api/orders/import")
+      .set("authorization", `Bearer ${auth}`)
+      .set("idempotency-key", key)
+      .send({ csv, dryRun: false });
+    expect(committed.status).toBe(201);
+    expect(committed.body.createdOrders).toHaveLength(1);
+    const replay = await request(app)
+      .post("/api/orders/import")
+      .set("authorization", `Bearer ${auth}`)
+      .set("idempotency-key", key)
+      .send({ csv, dryRun: false });
+    expect(replay.status).toBe(201);
+    expect(replay.body.createdOrders[0].id).toBe(committed.body.createdOrders[0].id);
+  });
   it("records notifications, admin changes, settings, and audit events", async () => {
     const dispatcher = await token("dispatcher");
     await request(app)

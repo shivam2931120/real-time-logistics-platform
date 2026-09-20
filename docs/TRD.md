@@ -84,6 +84,7 @@ All private endpoints require `Authorization: Bearer <JWT>`. Demo login accepts 
 | PATCH     | `/api/customer/orders/:id/reschedule`               | customer owner                   | Change eligible delivery window               |
 | POST      | `/api/customer/orders/:id/cancel`                   | customer owner                   | Cancel pending/assigned delivery              |
 | GET/POST  | `/api/orders/:id/scans`                             | tenant / ops mutation            | Read or record idempotent parcel scan         |
+| POST      | `/api/orders/import`                               | admin/dispatcher                 | bounded CSV preview or idempotent batch creation with row-level validation |
 | GET       | `/api/reports/orders.csv`                           | tenant roles                     | Delivery detail export                        |
 | GET       | `/api/reports/summary.csv?days=7|30|90`             | admin/dispatcher                 | expanded operational analytics export         |
 | GET/POST  | `/api/support/tickets`                              | tenant roles                     | List/create support tickets                   |

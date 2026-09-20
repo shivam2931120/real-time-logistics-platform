@@ -3582,6 +3582,20 @@ td {
 .sla-actions .button {
   white-space: nowrap;
 }
+.bulk-import-panel .settlement-import-form {
+  display: grid;
+  gap: 10px;
+}
+.bulk-import-panel textarea {
+  min-height: 160px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.72rem;
+}
+.bulk-import-result {
+  margin-top: 16px;
+  border-top: 1px solid #253142;
+  padding-top: 12px;
+}
 .integration-row .button {
   flex: none;
 }
