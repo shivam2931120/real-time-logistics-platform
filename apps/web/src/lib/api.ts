@@ -200,6 +200,11 @@ export const api = {
     request<ForecastSummary>(`/api/analytics/forecast?days=${days}`),
   operatingCosts: (days = 30) =>
     request<OperatingCostRecord[]>(`/api/analytics/costs?days=${days}`),
+  importOperatingCosts: (csv: string) =>
+    request<{ rowCount: number; records: OperatingCostRecord[] }>("/api/analytics/costs/import", {
+      method: "POST",
+      body: JSON.stringify({ csv }),
+    }),
   createOperatingCost: (data: Omit<OperatingCostRecord, "id" | "organizationId" | "createdAt" | "source">) =>
     request<OperatingCostRecord>("/api/analytics/costs", {
       method: "POST",

@@ -50,6 +50,7 @@ import {
   persistProofAndDelivery,
   persistSettings,
   persistOperatingCost,
+  persistOperatingCosts,
   persistSupportMessage,
   persistSupportTicket,
   persistSupportTicketWithMessage,
@@ -107,6 +108,7 @@ import {
   reviewSettlement,
 } from "./services/settlements.js";
 import { parseBulkOrderCsv } from "./services/bulkOrders.js";
+import { parseOperatingCostCsv } from "./services/operatingCosts.js";
 import {
   configureBulkImportProcessor,
   enqueueBulkImport,
@@ -2698,6 +2700,41 @@ export function createApp() {
           .parse(req.query);
         const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
         return res.json(store.listOperatingCosts(req.user!.organizationId, since));
+      } catch (error) {
+        next(error);
+      }
+    },
+  );
+  app.post(
+    "/api/analytics/costs/import",
+    permit("admin", "dispatcher"),
+    async (req, res, next) => {
+      try {
+        const input = z.object({ csv: z.string().min(1).max(100_000) }).parse(req.body);
+        const rows = parseOperatingCostCsv(input.csv);
+        const tenantDrivers = new Set(
+          drivers
+            .filter((driver) => users.some((user) => user.id === driver.userId && user.organizationId === req.user!.organizationId))
+            .map((driver) => driver.id),
+        );
+        if (rows.some((row) => row.driverId && !tenantDrivers.has(row.driverId)))
+          return res.status(422).json({ error: "Every driver_id must belong to this organization" });
+        const records = rows.map((row) => store.createOperatingCost({
+          organizationId: req.user!.organizationId,
+          ...row,
+          source: "import",
+        }));
+        try {
+          await persistOperatingCosts(records);
+        } catch (error) {
+          store.removeOperatingCosts(records.map((record) => record.id));
+          throw error;
+        }
+        await audit(req.user!, "analytics.operating_costs_imported", "operating_cost", req.user!.organizationId, {
+          rowCount: records.length,
+          source: "import",
+        });
+        return res.status(201).json({ rowCount: records.length, records });
       } catch (error) {
         next(error);
       }

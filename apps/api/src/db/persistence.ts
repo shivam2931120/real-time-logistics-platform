@@ -791,9 +791,8 @@ export async function persistSettings(settings: OrganizationSettings) {
     ],
   );
 }
-export async function persistOperatingCost(record: OperatingCostRecord) {
-  if (!dbEnabled || !pool) return;
-  await pool.query(
+async function writeOperatingCost(record: OperatingCostRecord, client: PoolClient) {
+  await client.query(
     `INSERT INTO operating_cost_records(id,organization_id,category,amount_minor,currency,incurred_at,driver_id,route_run_id,note,source,created_at)
      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
      ON CONFLICT(id) DO UPDATE SET category=EXCLUDED.category,amount_minor=EXCLUDED.amount_minor,currency=EXCLUDED.currency,incurred_at=EXCLUDED.incurred_at,driver_id=EXCLUDED.driver_id,route_run_id=EXCLUDED.route_run_id,note=EXCLUDED.note,source=EXCLUDED.source`,
@@ -811,6 +810,23 @@ export async function persistOperatingCost(record: OperatingCostRecord) {
       record.createdAt,
     ],
   );
+}
+export async function persistOperatingCosts(records: OperatingCostRecord[]) {
+  if (!dbEnabled || !pool || !records.length) return;
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    for (const record of records) await writeOperatingCost(record, client);
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+export async function persistOperatingCost(record: OperatingCostRecord) {
+  await persistOperatingCosts([record]);
 }
 export async function persistUserRole(userId: string, role: Role) {
   if (!dbEnabled || !pool) return;

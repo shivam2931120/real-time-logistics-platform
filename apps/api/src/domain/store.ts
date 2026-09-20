@@ -288,6 +288,11 @@ export const store = {
     const index = operatingCosts.findIndex((record) => record.id === id);
     if (index >= 0) operatingCosts.splice(index, 1);
   },
+  removeOperatingCosts(ids: string[]) {
+    const idSet = new Set(ids);
+    for (let index = operatingCosts.length - 1; index >= 0; index -= 1)
+      if (idSet.has(operatingCosts[index]!.id)) operatingCosts.splice(index, 1);
+  },
   createOrder(
     input: Omit<
       Order,

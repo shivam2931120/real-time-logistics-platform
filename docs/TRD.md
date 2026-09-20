@@ -94,7 +94,7 @@ All private endpoints require `Authorization: Bearer <JWT>`. Demo login accepts 
 | PATCH     | `/api/support/tickets/:id`                          | admin/dispatcher                 | Update status/assignment                      |
 | POST      | `/api/payments/demo/:orderId/confirm`               | demo only                        | simulate settlement                           |
 | GET       | `/api/analytics/summary?days=7|30|90`              | dispatcher/admin                 | SLA, route, geofence, driver, zone, period-comparison and estimated cost metrics |
-| GET/POST  | `/api/analytics/costs`                              | dispatcher/admin                 | list or record tenant-scoped fuel, driver, toll, maintenance and other operating costs |
+| GET/POST  | `/api/analytics/costs`, `/api/analytics/costs/import` | dispatcher/admin                 | list, record, or import bounded tenant-scoped fuel, driver, toll, maintenance and other operating costs |
 | GET       | `/api/track/:code`                                  | public                           | privacy-minimized tracking snapshot           |
 | GET/POST/PATCH/DELETE | `/api/customer/addresses`, `/api/customer/addresses/:id` | customer owner | private saved destinations and delivery preferences |
 | GET/POST/PATCH/DELETE | `/api/territories`, `/api/territories/:id` | operations/admin | manage tenant service polygons |

@@ -136,6 +136,27 @@ describe("API", () => {
     expect(listed.status).toBe(200);
     expect(listed.body).toEqual(expect.arrayContaining([expect.objectContaining({ id: created.body.id })]));
   });
+  it("imports bounded operating cost CSV rows with source provenance", async () => {
+    const auth = await token("admin");
+    const response = await request(app)
+      .post("/api/analytics/costs/import")
+      .set("authorization", `Bearer ${auth}`)
+      .send({
+        csv: [
+          "category,amount,currency,incurred_at,note",
+          "fuel,180,INR,2026-09-20T10:00:00Z,Refuel",
+          "toll,45,INR,2026-09-20T11:00:00Z,Highway toll",
+        ].join("\n"),
+      });
+    expect(response.status).toBe(201);
+    expect(response.body).toEqual(expect.objectContaining({ rowCount: 2, records: expect.any(Array) }));
+    expect(response.body.records).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ category: "fuel", amount: 180, source: "import" }),
+        expect.objectContaining({ category: "toll", amount: 45, source: "import" }),
+      ]),
+    );
+  });
   it("returns an explainable tenant-scoped demand forecast", async () => {
     const auth = await token("dispatcher");
     const response = await request(app)
