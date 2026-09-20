@@ -230,8 +230,12 @@ export const api = {
     id: string,
     data: {
       recipientName: string;
-      recipientPin: string;
-      signatureData: string;
+      recipientPin?: string;
+      parcelCode?: string;
+      signatureData?: string;
+      photoData?: string;
+      verificationMethod?: "pin" | "qr" | "pin+qr";
+      location?: { lat: number; lng: number };
     },
   ) =>
     request<Order>(`/api/orders/${id}/proof`, {

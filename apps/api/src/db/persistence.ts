@@ -82,7 +82,7 @@ export async function initializePersistence() {
     [demoOrganizationUuid],
   );
   const proofRows = await pool.query(
-    `SELECT order_id::text,driver_id::text,recipient_name,signature_data,created_at FROM proof_of_delivery WHERE organization_id=$1`,
+    `SELECT order_id::text,driver_id::text,recipient_name,signature_data,photo_data,verification_method,proof_lat,proof_lng,created_at FROM proof_of_delivery WHERE organization_id=$1`,
     [demoOrganizationUuid],
   );
   const exceptionRows = await pool.query(
@@ -175,6 +175,12 @@ export async function initializePersistence() {
             driverId: localId(proof.driver_id, drivers),
             recipientName: proof.recipient_name,
             signatureData: proof.signature_data,
+            photoData: proof.photo_data || undefined,
+            verificationMethod: proof.verification_method || undefined,
+            location:
+              proof.proof_lat === null || proof.proof_lng === null
+                ? undefined
+                : { lat: Number(proof.proof_lat), lng: Number(proof.proof_lng) },
             createdAt: iso(proof.created_at),
           }
         : undefined,
@@ -624,13 +630,17 @@ export async function persistAudit(item: AuditRecord) {
 export async function persistProof(order: Order, proof: DeliveryProof) {
   if (!dbEnabled || !pool) return;
   await pool.query(
-    `INSERT INTO proof_of_delivery(order_id,organization_id,driver_id,recipient_name,signature_data,created_at) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(order_id) DO UPDATE SET recipient_name=EXCLUDED.recipient_name,signature_data=EXCLUDED.signature_data,created_at=EXCLUDED.created_at`,
+    `INSERT INTO proof_of_delivery(order_id,organization_id,driver_id,recipient_name,signature_data,photo_data,verification_method,proof_lat,proof_lng,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT(order_id) DO UPDATE SET recipient_name=EXCLUDED.recipient_name,signature_data=EXCLUDED.signature_data,photo_data=EXCLUDED.photo_data,verification_method=EXCLUDED.verification_method,proof_lat=EXCLUDED.proof_lat,proof_lng=EXCLUDED.proof_lng,created_at=EXCLUDED.created_at`,
     [
       asUuid(order.id),
       organizationUuid(order.organizationId),
       asUuid(proof.driverId),
       proof.recipientName,
       proof.signatureData,
+      proof.photoData || null,
+      proof.verificationMethod || "pin",
+      proof.location?.lat ?? null,
+      proof.location?.lng ?? null,
       proof.createdAt,
     ],
   );
@@ -647,13 +657,17 @@ export async function persistProofAndDelivery(
     await writeOrder(order, client);
     await writeDriver(driver, client);
     await client.query(
-      `INSERT INTO proof_of_delivery(order_id,organization_id,driver_id,recipient_name,signature_data,created_at) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(order_id) DO UPDATE SET recipient_name=EXCLUDED.recipient_name,signature_data=EXCLUDED.signature_data,created_at=EXCLUDED.created_at`,
+      `INSERT INTO proof_of_delivery(order_id,organization_id,driver_id,recipient_name,signature_data,photo_data,verification_method,proof_lat,proof_lng,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT(order_id) DO UPDATE SET recipient_name=EXCLUDED.recipient_name,signature_data=EXCLUDED.signature_data,photo_data=EXCLUDED.photo_data,verification_method=EXCLUDED.verification_method,proof_lat=EXCLUDED.proof_lat,proof_lng=EXCLUDED.proof_lng,created_at=EXCLUDED.created_at`,
       [
         asUuid(order.id),
         organizationUuid(order.organizationId),
         asUuid(proof.driverId),
         proof.recipientName,
         proof.signatureData,
+        proof.photoData || null,
+        proof.verificationMethod || "pin",
+        proof.location?.lat ?? null,
+        proof.location?.lng ?? null,
         proof.createdAt,
       ],
     );

@@ -1,12 +1,14 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
+  Camera,
   ChevronRight,
   LogOut,
   MapPinned,
   PackageCheck,
   Radio,
+  QrCode,
   Route,
   ScanLine,
 } from "lucide-react";
@@ -347,6 +349,55 @@ function ScanModal({
         : "delivery",
   );
   const [code, setCode] = useState(order.parcelCode || order.trackingCode);
+  const [camera, setCamera] = useState(false);
+  const [cameraError, setCameraError] = useState("");
+  const videoRef = useRef<HTMLVideoElement>(null);
+  useEffect(() => {
+    if (!camera) return;
+    let stopped = false;
+    let stream: MediaStream | undefined;
+    const detectorRuntime = globalThis as typeof globalThis & {
+      BarcodeDetector?: new (options?: { formats?: string[] }) => {
+        detect: (source: HTMLVideoElement) => Promise<Array<{ rawValue?: string }>>;
+      };
+    };
+    const start = async () => {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        setCameraError("Camera access is not available on this device.");
+        return;
+      }
+      if (!detectorRuntime.BarcodeDetector) {
+        setCameraError("QR detection is not supported here. Enter the parcel code manually.");
+        return;
+      }
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+        if (stopped || !videoRef.current) return;
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+        const detector = new detectorRuntime.BarcodeDetector({ formats: ["qr_code"] });
+        const poll = async () => {
+          if (stopped || !videoRef.current) return;
+          const result = await detector.detect(videoRef.current).catch(() => []);
+          const raw = result.find((item) => item.rawValue)?.rawValue;
+          if (raw) {
+            setCode(raw);
+            setCamera(false);
+            return;
+          }
+          window.requestAnimationFrame(() => void poll());
+        };
+        void poll();
+      } catch {
+        setCameraError("Camera permission was denied. Enter the parcel code manually.");
+      }
+    };
+    void start();
+    return () => {
+      stopped = true;
+      stream?.getTracks().forEach((track) => track.stop());
+    };
+  }, [camera]);
   const submit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     try {
@@ -364,13 +415,20 @@ function ScanModal({
         <h2>Scan parcel</h2>
         <form className="form-grid" onSubmit={submit}>
           <label className="span-2">
-            Parcel code
+            Parcel QR / tracking code
             <input
               value={code}
               onChange={(event) => setCode(event.target.value)}
               required
             />
           </label>
+          <div className="form-actions span-2">
+            <button type="button" className="button ghost" onClick={() => { setCameraError(""); setCamera((value) => !value); }}>
+              <QrCode /> {camera ? "Close QR camera" : "Scan QR with camera"}
+            </button>
+          </div>
+          {camera && <video ref={videoRef} className="qr-camera" muted playsInline />}
+          {cameraError && <p className="inline-notice warning span-2">{cameraError}</p>}
           <label className="span-2">
             Stage
             <select
@@ -419,14 +477,39 @@ function ProofModal({
   saved: () => void;
   fail: (value: string) => void;
 }) {
+  const [signatureData, setSignatureData] = useState("");
+  const [photoData, setPhotoData] = useState<string | undefined>();
+  const [localError, setLocalError] = useState("");
+  const photoInput = useRef<HTMLInputElement>(null);
+  const readPhoto = (file: File) => {
+    if (file.size > 900_000) {
+      setLocalError("Choose a photo smaller than 900 KB.");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => setPhotoData(typeof reader.result === "string" ? reader.result : undefined);
+    reader.readAsDataURL(file);
+  };
   const submit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
+    const pin = String(form.get("pin") || "").trim();
+    const parcelCode = String(form.get("parcelCode") || "").trim();
+    if (!pin && !parcelCode) {
+      setLocalError("Enter the recipient PIN or scan the parcel QR code.");
+      return;
+    }
+    if (!signatureData && !photoData) {
+      setLocalError("Capture a signature or delivery photo before completing.");
+      return;
+    }
     try {
       await api.proof(order.id, {
         recipientName: String(form.get("name")),
-        recipientPin: String(form.get("pin")),
-        signatureData: `typed:${String(form.get("signature"))}`,
+        recipientPin: pin || undefined,
+        parcelCode: parcelCode || undefined,
+        signatureData: signatureData || undefined,
+        photoData,
       });
       close();
       await saved();
@@ -448,20 +531,37 @@ function ProofModal({
             Delivery PIN
             <input
               name="pin"
-              required
               pattern="[0-9]{4,6}"
               inputMode="numeric"
+              placeholder="1234"
             />
           </label>
           <label>
-            Signature
-            <input
-              name="signature"
-              required
-              minLength={3}
-              placeholder="Type recipient name"
-            />
+            Parcel QR code
+            <input name="parcelCode" placeholder="Scan or enter code" />
           </label>
+          <div className="span-2 proof-capture">
+            <span className="field-caption">Recipient signature</span>
+            <SignaturePad value={signatureData} onChange={setSignatureData} />
+          </div>
+          <div className="span-2 proof-photo">
+            <input
+              ref={photoInput}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              hidden
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                if (file) readPhoto(file);
+              }}
+            />
+            <button type="button" className="button ghost" onClick={() => photoInput.current?.click()}>
+              <Camera /> {photoData ? "Retake delivery photo" : "Capture delivery photo"}
+            </button>
+            {photoData && <img src={photoData} alt="Delivery proof preview" />}
+          </div>
+          {localError && <p className="error span-2" role="alert">{localError}</p>}
           <div className="form-actions span-2">
             <button type="button" className="button ghost" onClick={close}>
               Cancel
@@ -473,6 +573,64 @@ function ProofModal({
           </div>
         </form>
       </section>
+    </div>
+  );
+}
+
+function SignaturePad({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const drawing = useRef(false);
+  const point = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    const canvas = event.currentTarget;
+    const rect = canvas.getBoundingClientRect();
+    return {
+      x: ((event.clientX - rect.left) / rect.width) * canvas.width,
+      y: ((event.clientY - rect.top) / rect.height) * canvas.height,
+    };
+  };
+  const clear = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    canvas.getContext("2d")?.clearRect(0, 0, canvas.width, canvas.height);
+    onChange("");
+  };
+  return (
+    <div className="signature-pad">
+      <canvas
+        ref={canvasRef}
+        width={720}
+        height={240}
+        aria-label="Draw recipient signature"
+        onPointerDown={(event) => {
+          const canvas = event.currentTarget;
+          const ctx = canvas.getContext("2d");
+          if (!ctx) return;
+          drawing.current = true;
+          canvas.setPointerCapture(event.pointerId);
+          const { x, y } = point(event);
+          ctx.beginPath();
+          ctx.moveTo(x, y);
+        }}
+        onPointerMove={(event) => {
+          if (!drawing.current) return;
+          const ctx = event.currentTarget.getContext("2d");
+          if (!ctx) return;
+          const { x, y } = point(event);
+          ctx.lineWidth = 4;
+          ctx.lineCap = "round";
+          ctx.strokeStyle = "#102019";
+          ctx.lineTo(x, y);
+          ctx.stroke();
+        }}
+        onPointerUp={(event) => {
+          if (!drawing.current) return;
+          drawing.current = false;
+          const canvas = event.currentTarget;
+          onChange(canvas.toDataURL("image/png"));
+        }}
+        onPointerLeave={() => { drawing.current = false; }}
+      />
+      <button type="button" className="button ghost" onClick={clear} disabled={!value}>Clear signature</button>
     </div>
   );
 }

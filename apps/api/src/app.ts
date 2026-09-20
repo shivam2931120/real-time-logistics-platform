@@ -894,8 +894,20 @@ export function createApp() {
         const body = z
           .object({
             recipientName: z.string().min(2).max(80),
-            recipientPin: z.string().regex(/^\d{4,6}$/),
-            signatureData: z.string().min(10).max(20_000),
+            recipientPin: z.string().regex(/^\d{4,6}$/).optional(),
+            parcelCode: z.string().trim().min(3).max(80).optional(),
+            signatureData: z.string().min(3).max(200_000).optional(),
+            photoData: z.string().max(1_200_000).optional(),
+            verificationMethod: z.enum(["pin", "qr", "pin+qr"]).optional(),
+            location: mapCoordinate.optional(),
+          })
+          .refine((value) => value.recipientPin || value.parcelCode, {
+            message: "Verify delivery with the recipient PIN or parcel QR code",
+            path: ["recipientPin"],
+          })
+          .refine((value) => value.signatureData || value.photoData, {
+            message: "Capture a signature or delivery photo",
+            path: ["signatureData"],
           })
           .parse(req.body);
         const order = store.getOrder(req.params.id, req.user!.organizationId);
@@ -904,13 +916,26 @@ export function createApp() {
           return res.status(404).json({ error: "Assignment not found" });
         if (order.status !== "in_transit")
           return res.status(409).json({ error: "Delivery must be in transit" });
-        if (!store.verifyDeliveryPin(order.id, body.recipientPin))
-          return res.status(400).json({ error: "Incorrect recipient PIN" });
+        const pinVerified = body.recipientPin
+          ? store.verifyDeliveryPin(order.id, body.recipientPin)
+          : false;
+        const qrVerified = Boolean(
+          body.parcelCode &&
+            [order.parcelCode, order.trackingCode].some(
+              (value) => value?.toLowerCase() === body.parcelCode!.toLowerCase(),
+            ),
+        );
+        if (!pinVerified && !qrVerified)
+          return res.status(400).json({ error: "Delivery verification failed" });
         const os = structuredClone(order),
           ds = structuredClone(driver);
         const proof = {
           recipientName: body.recipientName,
-          signatureData: body.signatureData,
+          signatureData: body.signatureData || "",
+          photoData: body.photoData,
+          verificationMethod:
+            body.verificationMethod || (pinVerified && qrVerified ? "pin+qr" : qrVerified ? "qr" : "pin"),
+          location: body.location || driver.location,
           driverId: driver.id,
           createdAt: new Date().toISOString(),
         };

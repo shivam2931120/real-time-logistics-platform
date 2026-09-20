@@ -315,10 +315,14 @@ describe("API", () => {
         recipientName: "Receiver",
         recipientPin: "4321",
         signatureData: "typed:Receiver",
+        parcelCode: created.body.parcelCode,
+        photoData: "data:image/png;base64,ZmFrZQ==",
       });
     expect(delivered.status).toBe(200);
     expect(delivered.body.status).toBe("delivered");
     expect(delivered.body.proof.recipientName).toBe("Receiver");
+    expect(delivered.body.proof.photoData).toContain("data:image/png");
+    expect(delivered.body.proof.verificationMethod).toBe("pin+qr");
   });
   it("creates and resolves operational exceptions", async () => {
     const auth = await token("dispatcher");

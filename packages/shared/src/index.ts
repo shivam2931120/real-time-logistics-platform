@@ -84,6 +84,9 @@ export interface OrderEvent {
 export interface DeliveryProof {
   recipientName: string;
   signatureData: string;
+  photoData?: string;
+  verificationMethod?: "pin" | "qr" | "pin+qr";
+  location?: Coordinate;
   createdAt: string;
   driverId: string;
 }
