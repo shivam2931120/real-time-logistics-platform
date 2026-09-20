@@ -82,6 +82,12 @@ import {
   revokeIntegrationApiKey,
   isSafeWebhookUrl,
 } from "./services/integrations.js";
+import {
+  createRouteRun,
+  getRouteRun,
+  listRouteRuns,
+  updateRouteRunStatus,
+} from "./services/routeRuns.js";
 
 const coordinate = z.object({
   label: z.string().min(3).max(160),
@@ -1954,6 +1960,115 @@ export function createApp() {
       }
     },
   );
+  app.get("/api/route-runs", permit("admin", "dispatcher", "driver"), async (req, res, next) => {
+    try {
+      const driverId = req.user!.role === "driver"
+        ? drivers.find((driver) => driver.userId === req.user!.id)?.id
+        : undefined;
+      return res.json(await listRouteRuns(req.user!.organizationId, driverId));
+    } catch (error) {
+      next(error);
+    }
+  });
+  app.get("/api/route-runs/:id", permit("admin", "dispatcher", "driver"), (req, res) => {
+    const run = getRouteRun(req.user!.organizationId, String(req.params.id));
+    if (!run) return res.status(404).json({ error: "Route run not found" });
+    if (req.user!.role === "driver" && run.driverId !== drivers.find((driver) => driver.userId === req.user!.id)?.id)
+      return res.status(403).json({ error: "Not your route run" });
+    return res.json(run);
+  });
+  app.post("/api/route-runs", permit("admin", "dispatcher"), async (req, res, next) => {
+    try {
+      const body = z.object({
+        driverId: z.string(),
+        orderIds: z.array(z.string()).min(1).max(50),
+        constraints: routeConstraintsSchema.optional(),
+      }).parse(req.body);
+      const driver = drivers.find((candidate) => candidate.id === body.driverId && driverForTenant(candidate, req.user!.organizationId));
+      if (!driver) return res.status(404).json({ error: "Driver not found" });
+      const selected = body.orderIds.map((id) => store.getOrder(id, req.user!.organizationId));
+      if (selected.some((order) => !order)) return res.status(404).json({ error: "One or more orders not found" });
+      if (selected.some((order) => ["delivered", "cancelled", "failed"].includes(order!.status)))
+        return res.status(409).json({ error: "Completed or cancelled orders cannot be added to a route run" });
+      const plan = optimizeRoute(
+        driver.location,
+        selected.map((order) => ({
+          ...order!.dropoff,
+          id: order!.id,
+          demandKg: order!.packageWeightKg,
+          priority: order!.priority,
+          deliveryWindowStart: order!.deliveryWindowStart,
+          promisedAt: order!.promisedAt,
+        })),
+        driver.capacityKg,
+        {
+          ...(body.constraints ?? {}),
+          averageSpeedKph: body.constraints?.averageSpeedKph ?? settingsForOrganization(req.user!.organizationId).averageSpeedKph,
+          shiftEnd: body.constraints?.shiftEnd ?? driver.shiftEnd,
+        },
+      );
+      const run = await createRouteRun({
+        organizationId: req.user!.organizationId,
+        createdBy: req.user!.id,
+        driverId: driver.id,
+        orderIds: body.orderIds,
+        plan,
+      });
+      await audit(req.user!, "route_run.created", "route_run", run.id, { driverId: driver.id, orderCount: run.orderIds.length });
+      return res.status(201).json(run);
+    } catch (error) {
+      next(error);
+    }
+  });
+  app.post("/api/route-runs/:id/publish", permit("admin", "dispatcher"), async (req, res, next) => {
+    try {
+      const run = getRouteRun(req.user!.organizationId, String(req.params.id));
+      if (!run) return res.status(404).json({ error: "Route run not found" });
+      if (run.status !== "draft") return res.status(409).json({ error: "Only draft route runs can be published" });
+      const driver = drivers.find((candidate) => candidate.id === run.driverId && driverForTenant(candidate, req.user!.organizationId));
+      if (!driver) return res.status(404).json({ error: "Driver not found" });
+      const selected = run.orderIds.map((id) => store.getOrder(id, req.user!.organizationId));
+      if (selected.some((order) => !order)) return res.status(404).json({ error: "A route order no longer exists" });
+      if (selected.some((order) => order!.assignedDriverId && order!.assignedDriverId !== driver.id))
+        return res.status(409).json({ error: "A route order is assigned to another driver" });
+      const orderSnapshots = selected.map((order) => structuredClone(order!));
+      const driverSnapshot = structuredClone(driver);
+      try {
+        for (const order of selected) {
+          if (order!.status === "pending") store.assign(order!, driver, req.user!);
+          await persistOrderAndDriver(order!, driver);
+        }
+        await updateRouteRunStatus(run, "published");
+      } catch (error) {
+        selected.forEach((order, index) => {
+          const snapshot = orderSnapshots[index];
+          if (order && snapshot) restore(order, snapshot);
+        });
+        restore(driver, driverSnapshot);
+        throw error;
+      }
+      await audit(req.user!, "route_run.published", "route_run", run.id, { driverId: driver.id, orderCount: run.orderIds.length });
+      req.app.get("io")?.to(`tenant:${run.organizationId}`).emit("route_run:updated", run);
+      return res.json(run);
+    } catch (error) {
+      next(error);
+    }
+  });
+  app.patch("/api/route-runs/:id/status", permit("admin", "dispatcher", "driver"), async (req, res, next) => {
+    try {
+      const run = getRouteRun(req.user!.organizationId, String(req.params.id));
+      if (!run) return res.status(404).json({ error: "Route run not found" });
+      if (req.user!.role === "driver" && run.driverId !== drivers.find((driver) => driver.userId === req.user!.id)?.id)
+        return res.status(403).json({ error: "Not your route run" });
+      const body = z.object({ status: z.enum(["in_progress", "completed", "cancelled"]), version: z.number().int().positive().optional() }).parse(req.body);
+      if (req.user!.role === "driver" && body.status === "cancelled") return res.status(403).json({ error: "Drivers cannot cancel route runs" });
+      const updated = await updateRouteRunStatus(run, body.status, body.version);
+      await audit(req.user!, `route_run.${body.status}`, "route_run", run.id, { version: updated.version });
+      return res.json(updated);
+    } catch (error) {
+      next(error);
+    }
+  });
   app.post(
     "/api/payments/:orderId/checkout",
     permit("admin", "dispatcher", "customer"),

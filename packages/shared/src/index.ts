@@ -74,6 +74,28 @@ export interface RoutePlan {
   returnToDepot?: boolean;
   warnings?: string[];
 }
+export type RouteRunStatus =
+  | "draft"
+  | "published"
+  | "in_progress"
+  | "completed"
+  | "cancelled";
+export interface RouteRun {
+  id: string;
+  organizationId: string;
+  driverId: string;
+  orderIds: string[];
+  stops: RoutePlanStop[];
+  distanceKm: number;
+  durationMinutes: number;
+  status: RouteRunStatus;
+  version: number;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+  publishedAt?: string;
+  completedAt?: string;
+}
 export interface OrderEvent {
   id: string;
   type: string;

@@ -19,6 +19,7 @@ import type {
   Role,
   RouteOptimizationConstraints,
   RoutePlan,
+  RouteRun,
   SupportMessage,
   SupportTicket,
   TrackingSnapshot,
@@ -188,6 +189,13 @@ export const api = {
     request<AnalyticsSummary>(`/api/analytics/summary?days=${days}`),
   analyticsForecast: (days = 14) =>
     request<ForecastSummary>(`/api/analytics/forecast?days=${days}`),
+  routeRuns: () => request<RouteRun[]>("/api/route-runs"),
+  createRouteRun: (data: { driverId: string; orderIds: string[]; constraints?: RouteOptimizationConstraints }) =>
+    request<RouteRun>("/api/route-runs", { method: "POST", body: JSON.stringify(data) }),
+  publishRouteRun: (id: string) =>
+    request<RouteRun>(`/api/route-runs/${encodeURIComponent(id)}/publish`, { method: "POST", body: "{}" }),
+  updateRouteRunStatus: (id: string, status: "in_progress" | "completed" | "cancelled", version?: number) =>
+    request<RouteRun>(`/api/route-runs/${encodeURIComponent(id)}/status`, { method: "PATCH", body: JSON.stringify({ status, version }) }),
   mapRoute: (
     points: Array<{ lat: number; lng: number }>,
     signal?: AbortSignal,

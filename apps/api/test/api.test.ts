@@ -156,6 +156,37 @@ describe("API", () => {
       }),
     );
   });
+  it("saves and publishes a versioned route run", async () => {
+    const auth = await token("dispatcher");
+    const order = orders.find((item) => item.id === "ord_1002")!;
+    const driver = drivers.find((item) => item.id === "d_rohan")!;
+    const orderSnapshot = structuredClone(order);
+    const driverSnapshot = structuredClone(driver);
+    try {
+      const created = await request(app)
+        .post("/api/route-runs")
+        .set("authorization", `Bearer ${auth}`)
+        .send({ driverId: driver.id, orderIds: [order.id], constraints: { serviceMinutes: 5 } });
+      expect(created.status).toBe(201);
+      expect(created.body.status).toBe("draft");
+      expect(created.body.version).toBe(1);
+      const published = await request(app)
+        .post(`/api/route-runs/${created.body.id}/publish`)
+        .set("authorization", `Bearer ${auth}`)
+        .send({});
+      expect(published.status).toBe(200);
+      expect(published.body.status).toBe("published");
+      expect(published.body.version).toBe(2);
+      const driverView = await request(app)
+        .get("/api/route-runs")
+        .set("authorization", `Bearer ${await token("driver")}`);
+      expect(driverView.status).toBe(200);
+      expect(driverView.body).toEqual(expect.arrayContaining([expect.objectContaining({ id: created.body.id })]));
+    } finally {
+      Object.assign(order, orderSnapshot);
+      Object.assign(driver, driverSnapshot);
+    }
+  });
   it("keeps out-of-order offline location fixes in history without rewinding live state", async () => {
     const auth = await token("driver");
     const profile = await request(app)

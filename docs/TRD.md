@@ -33,6 +33,7 @@ Driver geolocation ──Socket.IO──> validated location store + tenant/trac
 | SupportTicket     | id, tenant/order/customer, subject, category, priority, status, assignee, timestamps                                                                                                      |
 | SupportMessage    | id, ticket, sender/role, message, internal flag, timestamp                                                                                                                                |
 | Route             | id, driverId, date, orderedStops, distanceKm, durationMin, status                                                                                                                         |
+| RouteRun          | tenant, driver, ordered order IDs/stops, draft/published/in-progress/completed status, optimistic version, publish/completion timestamps |
 | OrderEvent        | id, orderId, type, actorId, payload, createdAt                                                                                                                                            |
 | Notification      | id, orderId, channel, recipient, template, status, attempts                                                                                                                               |
 | Payment           | id, orderId, provider, providerRef, amount, currency, status                                                                                                                              |
@@ -60,6 +61,8 @@ All private endpoints require `Authorization: Bearer <JWT>`. Demo login accepts 
 | POST      | `/api/orders/:id/reject`                            | assigned driver                  | reject and release assignment                 |
 | POST      | `/api/orders/:id/proof`                             | assigned driver                  | verify PIN and atomically complete with proof |
 | POST      | `/api/routes/optimize`                              | dispatcher/admin                 | capacity-, priority-, window- and shift-aware stop ordering with per-stop ETAs |
+| GET/POST  | `/api/route-runs`                                   | operations / assigned driver     | list or save a versioned route draft; driver sees only own runs              |
+| POST/PATCH| `/api/route-runs/:id/publish`, `/api/route-runs/:id/status` | operations/assigned driver | publish validated stops and advance an owned run with version checks         |
 | GET       | `/api/drivers`                                      | dispatcher/admin                 | tenant fleet state                            |
 | GET       | `/api/drivers/:id/locations?limit=100`              | dispatcher/admin                 | recent persisted GPS history                  |
 | PATCH     | `/api/drivers/:id`                                  | dispatcher/admin                 | update operational status/capacity            |

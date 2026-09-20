@@ -7,7 +7,7 @@ import {
   Sparkles,
   Truck,
 } from "lucide-react";
-import type { Driver, Order } from "@routepulse/shared";
+import type { Driver, Order, RouteRun } from "@routepulse/shared";
 import { api, type RoutePlan } from "../lib/api";
 import { LiveMap } from "../components/LiveMap";
 
@@ -58,6 +58,8 @@ export function RoutePlannerPage({
   const [maxRouteMinutes, setMaxRouteMinutes] = useState(600);
   const [respectTimeWindows, setRespectTimeWindows] = useState(true);
   const [returnToDepot, setReturnToDepot] = useState(false);
+  const [savedRuns, setSavedRuns] = useState<RouteRun[]>([]);
+  const [runBusy, setRunBusy] = useState(false);
   const initializedSelection = useRef(false);
   useEffect(() => {
     if (!driverId && drivers[0]) setDriverId(drivers[0].id);
@@ -72,6 +74,9 @@ export function RoutePlannerPage({
         : current.filter((id) => candidates.some((order) => order.id === id)),
     );
   }, [candidates]);
+  useEffect(() => {
+    void api.routeRuns().then(setSavedRuns).catch(() => setSavedRuns([]));
+  }, []);
   const driver = drivers.find((item) => item.id === driverId);
   const orderedSelectedOrders = selected
     .map((id) => candidates.find((order) => order.id === id))
@@ -145,6 +150,36 @@ export function RoutePlannerPage({
           }
         : current,
     );
+  };
+  const saveDraft = async () => {
+    if (!driverId || !plan || !planStops.length || runBusy) return;
+    setRunBusy(true);
+    setError("");
+    try {
+      const run = await api.createRouteRun({
+        driverId,
+        orderIds: planStops.map((stop) => stop.id),
+        constraints: { serviceMinutes, maxRouteMinutes, respectTimeWindows, returnToDepot },
+      });
+      setSavedRuns((current) => [run, ...current]);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Unable to save route draft");
+    } finally {
+      setRunBusy(false);
+    }
+  };
+  const publishRun = async (id: string) => {
+    if (runBusy) return;
+    setRunBusy(true);
+    setError("");
+    try {
+      const run = await api.publishRouteRun(id);
+      setSavedRuns((current) => current.map((item) => item.id === run.id ? run : item));
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Unable to publish route");
+    } finally {
+      setRunBusy(false);
+    }
   };
   return (
     <section className="planner-layout">
@@ -338,6 +373,24 @@ export function RoutePlannerPage({
           <Sparkles />
           {busy ? "Optimizing…" : "Optimize route"}
         </button>
+        <button
+          className="button ghost full"
+          disabled={runBusy || !plan || !planStops.length}
+          onClick={() => void saveDraft()}
+        >
+          <Route /> {runBusy ? "Saving…" : "Save route draft"}
+        </button>
+        {savedRuns.length > 0 && (
+          <div className="saved-route-runs">
+            <div className="stop-picker-head"><strong>Saved route runs</strong><small>{savedRuns.length}</small></div>
+            {savedRuns.slice(0, 4).map((run) => (
+              <div className="saved-route-run" key={run.id}>
+                <span><strong>{run.status.replace("_", " ")}</strong><small>{run.orderIds.length} stops · v{run.version}</small></span>
+                {run.status === "draft" && <button className="button ghost" disabled={runBusy} onClick={() => void publishRun(run.id)}>Publish</button>}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
       <div className="panel planner-map">
         <LiveMap

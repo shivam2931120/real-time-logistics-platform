@@ -3564,6 +3564,29 @@ td {
   gap: 8px;
   margin-top: 14px;
 }
+.saved-route-runs {
+  display: grid;
+  gap: 7px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #253142;
+}
+.saved-route-run {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 0;
+  border-top: 1px solid #253142;
+}
+.saved-route-run span {
+  display: grid;
+  gap: 2px;
+}
+.saved-route-run small {
+  color: #77869a;
+  font-size: 0.66rem;
+}
 .driver-edit label {
   font-size: 0.62rem;
   color: #77869a;
