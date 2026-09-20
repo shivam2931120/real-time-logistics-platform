@@ -15,6 +15,8 @@ import {
   parcelScans,
   supportMessages,
   supportTickets,
+  customerAddressBook,
+  serviceTerritories,
   store,
   users,
 } from "./domain/store.js";
@@ -49,6 +51,10 @@ import {
   persistSupportMessage,
   persistSupportTicket,
   persistSupportTicketWithMessage,
+  persistCustomerAddress,
+  deleteCustomerAddress,
+  persistServiceTerritory,
+  deleteServiceTerritory,
   persistUserRole,
   persistenceMode,
 } from "./db/persistence.js";
@@ -90,6 +96,7 @@ import {
 } from "./services/routeRuns.js";
 import { reconcilePayments } from "./services/reconciliation.js";
 import { operationalAlerts } from "./services/operationalAlerts.js";
+import { validateServiceArea } from "./services/territories.js";
 import {
   importSettlementCsv,
   listSettlementRows,
@@ -109,6 +116,17 @@ const coordinate = z.object({
 const mapCoordinate = z.object({
   lat: z.number().min(-90).max(90),
   lng: z.number().min(-180).max(180),
+});
+const customerAddressSchema = z.object({
+  label: z.string().trim().min(2).max(80),
+  address: coordinate,
+  deliveryNotes: z.string().trim().max(500).optional(),
+  contactName: z.string().trim().max(100).optional(),
+});
+const territorySchema = z.object({
+  name: z.string().trim().min(2).max(80),
+  polygon: z.array(mapCoordinate).min(3).max(100),
+  active: z.boolean().default(true),
 });
 const createSchema = z
   .object({
@@ -542,6 +560,153 @@ export function createApp() {
     res.once("close", release);
     return next();
   });
+  app.get("/api/customer/addresses", permit("customer"), (req, res) => {
+    return res.json(
+      customerAddressBook
+        .filter((entry) => entry.organizationId === req.user!.organizationId && entry.userId === req.user!.id)
+        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
+    );
+  });
+  app.post("/api/customer/addresses", permit("customer"), async (req, res, next) => {
+    try {
+      const input = customerAddressSchema.parse(req.body);
+      const timestamp = new Date().toISOString();
+      const entry = {
+        id: crypto.randomUUID(),
+        organizationId: req.user!.organizationId,
+        userId: req.user!.id,
+        ...input,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      };
+      customerAddressBook.unshift(entry);
+      try {
+        await persistCustomerAddress(entry);
+      } catch (error) {
+        customerAddressBook.splice(customerAddressBook.indexOf(entry), 1);
+        throw error;
+      }
+      await audit(req.user!, "customer.address_created", "customer_address", entry.id, { label: entry.label });
+      return res.status(201).json(entry);
+    } catch (error) {
+      return next(error);
+    }
+  });
+  app.patch("/api/customer/addresses/:id", permit("customer"), async (req, res, next) => {
+    try {
+      const input = customerAddressSchema.partial().parse(req.body);
+      const entry = customerAddressBook.find(
+        (item) => item.id === String(req.params.id) && item.organizationId === req.user!.organizationId && item.userId === req.user!.id,
+      );
+      if (!entry) return res.status(404).json({ error: "Saved address not found" });
+      const snapshot = structuredClone(entry);
+      Object.assign(entry, input, { updatedAt: new Date().toISOString() });
+      try {
+        await persistCustomerAddress(entry);
+      } catch (error) {
+        Object.assign(entry, snapshot);
+        throw error;
+      }
+      await audit(req.user!, "customer.address_updated", "customer_address", entry.id, { label: entry.label });
+      return res.json(entry);
+    } catch (error) {
+      return next(error);
+    }
+  });
+  app.delete("/api/customer/addresses/:id", permit("customer"), async (req, res, next) => {
+    try {
+      const index = customerAddressBook.findIndex(
+        (item) => item.id === String(req.params.id) && item.organizationId === req.user!.organizationId && item.userId === req.user!.id,
+      );
+      if (index < 0) return res.status(404).json({ error: "Saved address not found" });
+      const removed = customerAddressBook[index]!;
+      customerAddressBook.splice(index, 1);
+      await deleteCustomerAddress(removed.id, req.user!.organizationId, req.user!.id);
+      await audit(req.user!, "customer.address_deleted", "customer_address", removed.id);
+      return res.status(204).send();
+    } catch (error) {
+      return next(error);
+    }
+  });
+  app.get("/api/territories", (req, res) => {
+    return res.json(
+      serviceTerritories
+        .filter((territory) => territory.organizationId === req.user!.organizationId)
+        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
+    );
+  });
+  app.post("/api/territories/validate", async (req, res, next) => {
+    try {
+      const point = mapCoordinate.parse(req.body);
+      const result = validateServiceArea(req.user!.organizationId, point);
+      return res.json({
+        enforced: result.enforced,
+        inServiceArea: result.inServiceArea,
+        territories: result.territories.map(({ id, name }) => ({ id, name })),
+      });
+    } catch (error) {
+      return next(error);
+    }
+  });
+  app.post("/api/territories", permit("admin", "dispatcher"), async (req, res, next) => {
+    try {
+      const input = territorySchema.parse(req.body);
+      const timestamp = new Date().toISOString();
+      const territory = {
+        id: crypto.randomUUID(),
+        organizationId: req.user!.organizationId,
+        ...input,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      };
+      serviceTerritories.unshift(territory);
+      try {
+        await persistServiceTerritory(territory);
+      } catch (error) {
+        serviceTerritories.splice(serviceTerritories.indexOf(territory), 1);
+        throw error;
+      }
+      await audit(req.user!, "territory.created", "service_territory", territory.id, { name: territory.name });
+      return res.status(201).json(territory);
+    } catch (error) {
+      return next(error);
+    }
+  });
+  app.patch("/api/territories/:id", permit("admin", "dispatcher"), async (req, res, next) => {
+    try {
+      const input = territorySchema.partial().parse(req.body);
+      const territory = serviceTerritories.find(
+        (item) => item.id === String(req.params.id) && item.organizationId === req.user!.organizationId,
+      );
+      if (!territory) return res.status(404).json({ error: "Service territory not found" });
+      const snapshot = structuredClone(territory);
+      Object.assign(territory, input, { updatedAt: new Date().toISOString() });
+      try {
+        await persistServiceTerritory(territory);
+      } catch (error) {
+        Object.assign(territory, snapshot);
+        throw error;
+      }
+      return res.json(territory);
+    } catch (error) {
+      return next(error);
+    }
+  });
+  app.delete("/api/territories/:id", permit("admin"), async (req, res, next) => {
+    try {
+      const index = serviceTerritories.findIndex(
+        (item) => item.id === String(req.params.id) && item.organizationId === req.user!.organizationId,
+      );
+      if (index < 0) return res.status(404).json({ error: "Service territory not found" });
+      const removed = serviceTerritories[index]!;
+      serviceTerritories.splice(index, 1);
+      await deleteServiceTerritory(removed.id, req.user!.organizationId);
+      await audit(req.user!, "territory.deleted", "service_territory", removed.id);
+      return res.status(204).send();
+    } catch (error) {
+      return next(error);
+    }
+  });
   app.get("/api/me", (req, res) => res.json(req.user));
   app.get("/api/orders", (req, res) => {
     let data = store.listOrders(req.user!.organizationId);
@@ -563,6 +728,9 @@ export function createApp() {
       let order: Order | undefined;
       try {
         const parsed = createSchema.parse(req.body);
+        const serviceArea = validateServiceArea(req.user!.organizationId, parsed.dropoff);
+        if (serviceArea.enforced && !serviceArea.inServiceArea)
+          return res.status(422).json({ error: "Drop-off address is outside every active service territory" });
         const { recipientPin, ...input } = parsed;
         order = store.createOrder(input, req.user!);
         store.setDeliveryPin(order.id, recipientPin);

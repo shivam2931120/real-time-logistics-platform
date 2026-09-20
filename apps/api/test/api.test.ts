@@ -9,6 +9,8 @@ import {
   orders,
   organizationSettings,
   parcelScans,
+  customerAddressBook,
+  serviceTerritories,
   supportMessages,
   supportTickets,
   users,
@@ -35,6 +37,8 @@ describe("API", () => {
     notificationRecords.splice(0);
     auditRecords.splice(0);
     parcelScans.splice(0);
+    customerAddressBook.splice(0);
+    serviceTerritories.splice(0);
     supportMessages.splice(0);
     supportTickets.splice(0);
     users.find((user) => user.id === "u_customer")!.role = "customer";
@@ -181,6 +185,78 @@ describe("API", () => {
       .send({ reviewStatus: "rejected", note: "Refund requires finance confirmation" });
     expect(reviewed.status).toBe(200);
     expect(reviewed.body.reviewStatus).toBe("rejected");
+  });
+  it("keeps customer addresses private and validates service territories", async () => {
+    const customer = await token("customer");
+    const createdAddress = await request(app)
+      .post("/api/customer/addresses")
+      .set("authorization", `Bearer ${customer}`)
+      .send({
+        label: "Home",
+        address: { label: "Koramangala", lat: 12.9352, lng: 77.6245 },
+        deliveryNotes: "Call at the gate",
+      });
+    expect(createdAddress.status).toBe(201);
+    expect(
+      (
+        await request(app)
+          .get("/api/customer/addresses")
+          .set("authorization", `Bearer ${customer}`)
+      ).body,
+    ).toEqual(expect.arrayContaining([expect.objectContaining({ label: "Home" })]));
+    const updatedAddress = await request(app)
+      .patch(`/api/customer/addresses/${createdAddress.body.id}`)
+      .set("authorization", `Bearer ${customer}`)
+      .send({ deliveryNotes: "Leave with security" });
+    expect(updatedAddress.status).toBe(200);
+    expect(updatedAddress.body.deliveryNotes).toBe("Leave with security");
+    const dispatcher = await token("dispatcher");
+    const territory = await request(app)
+      .post("/api/territories")
+      .set("authorization", `Bearer ${dispatcher}`)
+      .send({
+        name: "Bengaluru core",
+        polygon: [
+          { lat: 12.9, lng: 77.5 },
+          { lat: 13.05, lng: 77.5 },
+          { lat: 13.05, lng: 77.7 },
+          { lat: 12.9, lng: 77.7 },
+        ],
+        active: true,
+      });
+    expect(territory.status).toBe(201);
+    const inside = await request(app)
+      .post("/api/territories/validate")
+      .set("authorization", `Bearer ${dispatcher}`)
+      .send({ lat: 12.9352, lng: 77.6245 });
+    const outside = await request(app)
+      .post("/api/territories/validate")
+      .set("authorization", `Bearer ${dispatcher}`)
+      .send({ lat: 13.3, lng: 77.9 });
+    expect(inside.body.inServiceArea).toBe(true);
+    expect(outside.body.inServiceArea).toBe(false);
+    const blocked = await request(app)
+      .post("/api/orders")
+      .set("authorization", `Bearer ${dispatcher}`)
+      .send({
+        customerName: "Out of area",
+        customerEmail: "outside@example.com",
+        pickup: { label: "Origin", lat: 12.97, lng: 77.59 },
+        dropoff: { label: "Outside", lat: 13.3, lng: 77.9 },
+        packageWeightKg: 1,
+        priority: "standard",
+        amount: 100,
+        currency: "INR",
+        promisedAt: new Date(Date.now() + 3_600_000).toISOString(),
+      });
+    expect(blocked.status).toBe(422);
+    expect(
+      (
+        await request(app)
+          .delete(`/api/customer/addresses/${createdAddress.body.id}`)
+          .set("authorization", `Bearer ${customer}`)
+      ).status,
+    ).toBe(204);
   });
   it("returns explainable GPS and route-run operational alerts", async () => {
     const auth = await token("dispatcher");

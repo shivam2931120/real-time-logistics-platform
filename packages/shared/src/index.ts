@@ -16,6 +16,26 @@ export interface Coordinate {
 export interface Address extends Coordinate {
   label: string;
 }
+export interface CustomerAddressBookEntry {
+  id: string;
+  organizationId: string;
+  userId: string;
+  label: string;
+  address: Address;
+  deliveryNotes?: string;
+  contactName?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+export interface ServiceTerritory {
+  id: string;
+  organizationId: string;
+  name: string;
+  polygon: Coordinate[];
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
 export interface User {
   id: string;
   organizationId: string;

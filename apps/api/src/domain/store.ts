@@ -12,6 +12,8 @@ import type {
   ParcelScan,
   SupportMessage,
   SupportTicket,
+  CustomerAddressBookEntry,
+  ServiceTerritory,
 } from "@routepulse/shared";
 import { createHash, randomUUID } from "node:crypto";
 import { assertTransition } from "./stateMachine.js";
@@ -203,6 +205,8 @@ export const auditRecords: AuditRecord[] = [];
 export const parcelScans: ParcelScan[] = [];
 export const supportTickets: SupportTicket[] = [];
 export const supportMessages: SupportMessage[] = [];
+export const customerAddressBook: CustomerAddressBookEntry[] = [];
+export const serviceTerritories: ServiceTerritory[] = [];
 export const organizationSettings: OrganizationSettings = {
   organizationId: org,
   name: "RoutePulse",

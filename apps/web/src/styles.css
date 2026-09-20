@@ -4085,6 +4085,17 @@ td {
   color: #f87171;
   border: 1px solid #ef444455;
 }
+.customer-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+.address-book-form { margin: 14px 0; }
+.address-book-list { display: grid; gap: 0; }
+.address-book-row { display: flex; align-items: center; gap: 12px; padding: 13px 16px; border-bottom: 1px solid #253142; }
+.address-book-row:last-child { border-bottom: 0; }
+.address-book-row > svg { flex: none; color: #06b6d4; }
+.address-book-row > span { display: grid; gap: 3px; min-width: 0; flex: 1; }
+.address-book-row small { color: #77869a; overflow-wrap: anywhere; }
+.territory-settings { margin-top: 14px; }
+.territory-settings textarea { min-height: 72px; resize: vertical; font: 0.72rem/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.territory-list { margin-top: 12px; border-top: 1px solid #253142; }
 .self-service-form {
   display: grid;
   gap: 9px;

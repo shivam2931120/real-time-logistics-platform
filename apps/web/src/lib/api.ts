@@ -13,6 +13,7 @@ import type {
   OrganizationSummary,
   OperationalAlert,
   BillingSummary,
+  CustomerAddressBookEntry,
   PaymentReconciliationSummary,
   PaymentSettlementRow,
   PaymentSettlementSummary,
@@ -24,6 +25,7 @@ import type {
   RouteOptimizationConstraints,
   RoutePlan,
   RouteRun,
+  ServiceTerritory,
   SupportMessage,
   SupportTicket,
   TrackingSnapshot,
@@ -314,6 +316,22 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify({ reviewStatus, note }),
     }),
+  customerAddresses: () => request<CustomerAddressBookEntry[]>("/api/customer/addresses"),
+  createCustomerAddress: (data: Omit<CustomerAddressBookEntry, "id" | "organizationId" | "userId" | "createdAt" | "updatedAt">) =>
+    request<CustomerAddressBookEntry>("/api/customer/addresses", { method: "POST", body: JSON.stringify(data) }),
+  updateCustomerAddress: (id: string, data: Partial<Omit<CustomerAddressBookEntry, "id" | "organizationId" | "userId" | "createdAt" | "updatedAt">>) =>
+    request<CustomerAddressBookEntry>(`/api/customer/addresses/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(data) }),
+  deleteCustomerAddress: (id: string) =>
+    request<void>(`/api/customer/addresses/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  serviceTerritories: () => request<ServiceTerritory[]>("/api/territories"),
+  validateServiceArea: (point: { lat: number; lng: number }) =>
+    request<{ enforced: boolean; inServiceArea: boolean; territories: Array<{ id: string; name: string }> }>("/api/territories/validate", { method: "POST", body: JSON.stringify(point) }),
+  createServiceTerritory: (data: Pick<ServiceTerritory, "name" | "polygon" | "active">) =>
+    request<ServiceTerritory>("/api/territories", { method: "POST", body: JSON.stringify(data) }),
+  updateServiceTerritory: (id: string, data: Partial<Pick<ServiceTerritory, "name" | "polygon" | "active">>) =>
+    request<ServiceTerritory>(`/api/territories/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(data) }),
+  deleteServiceTerritory: (id: string) =>
+    request<void>(`/api/territories/${encodeURIComponent(id)}`, { method: "DELETE" }),
   integrationApiKeys: () => request<IntegrationApiKeySummary[]>("/api/admin/integrations/api-keys"),
   createIntegrationApiKey: (name: string) =>
     request<IntegrationApiKeySummary & { key: string }>("/api/admin/integrations/api-keys", {

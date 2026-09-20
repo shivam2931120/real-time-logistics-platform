@@ -18,6 +18,7 @@ import {
   CircleDollarSign,
   Clock3,
   LayoutDashboard,
+  MapPin,
   LogOut,
   Menu,
   PackageCheck,
@@ -58,6 +59,7 @@ import {
   CommandPalette,
   type CommandDestination,
 } from "./components/CommandPalette";
+import { CustomerAddressBook } from "./pages/CustomerAddressBook";
 
 const next: Partial<Record<OrderStatus, OrderStatus>> = {
   assigned: "picked_up",
@@ -1501,6 +1503,7 @@ function CustomerView({
 }) {
   const [selected, setSelected] = useState<Order | null>(null);
   const [support, setSupport] = useState(false);
+  const [addresses, setAddresses] = useState(false);
   if (support)
     return (
       <main className="driver-app">
@@ -1509,6 +1512,16 @@ function CustomerView({
           customerOnly
           onBack={() => setSupport(false)}
         />
+      </main>
+    );
+  if (addresses)
+    return (
+      <main className="driver-app">
+        <header>
+          <div className="brand"><img className="brand-logo" src="/logo.png" alt="RoutePulse" /></div>
+          <button className="icon-btn" aria-label="Sign out" onClick={logout}><LogOut /></button>
+        </header>
+        <CustomerAddressBook onBack={() => setAddresses(false)} />
       </main>
     );
   return (
@@ -1529,9 +1542,10 @@ function CustomerView({
           securely.
         </p>
       </section>
-      <button className="button ghost" onClick={() => setSupport(true)}>
-        <LifeBuoy /> Contact support
-      </button>
+      <div className="customer-actions">
+        <button className="button ghost" onClick={() => setSupport(true)}><LifeBuoy /> Contact support</button>
+        <button className="button ghost" onClick={() => setAddresses(true)}><MapPin /> Saved addresses</button>
+      </div>
       {orders.length ? (
         <section className="panel table-panel">
           <div className="delivery-list">

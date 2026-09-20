@@ -13,6 +13,8 @@ import type {
   ParcelScan,
   SupportMessage,
   SupportTicket,
+  CustomerAddressBookEntry,
+  ServiceTerritory,
 } from "@routepulse/shared";
 import type { PoolClient } from "pg";
 import { pool, dbEnabled } from "./client.js";
@@ -27,6 +29,8 @@ import {
   parcelScans,
   supportMessages,
   supportTickets,
+  customerAddressBook,
+  serviceTerritories,
   store,
   users,
 } from "../domain/store.js";
@@ -102,6 +106,12 @@ export async function initializePersistence() {
   const messageRows = await pool.query(
     `SELECT id::text,organization_id::text,ticket_id::text,sender_id::text,sender_role,message,internal,created_at FROM support_messages ORDER BY created_at`,
   );
+  const addressRows = await pool.query(
+    `SELECT id::text,organization_id::text,user_id::text,label,address,delivery_notes,contact_name,created_at,updated_at FROM customer_addresses ORDER BY updated_at DESC`,
+  );
+  const territoryRows = await pool.query(
+    `SELECT id::text,organization_id::text,name,polygon,active,created_at,updated_at FROM service_territories ORDER BY updated_at DESC`,
+  );
   const loadedDrivers = driverRows.rows.map((row) => ({
       id: localId(row.id, drivers),
       userId: localId(row.user_id, users),
@@ -119,7 +129,29 @@ export async function initializePersistence() {
         ? iso(row.maintenance_due_at)
         : undefined,
       maintenanceStatus: row.maintenance_status || "ok",
-    })) as Driver[];
+  })) as Driver[];
+  const loadedAddresses = addressRows.rows.map((row) => ({
+    id: localId(row.id, customerAddressBook),
+    organizationId: organizationDomainId(row.organization_id),
+    userId: localId(row.user_id, users),
+    label: row.label,
+    address: row.address,
+    deliveryNotes: row.delivery_notes || undefined,
+    contactName: row.contact_name || undefined,
+    createdAt: iso(row.created_at),
+    updatedAt: iso(row.updated_at),
+  })) as CustomerAddressBookEntry[];
+  customerAddressBook.splice(0, customerAddressBook.length, ...loadedAddresses);
+  const loadedTerritories = territoryRows.rows.map((row) => ({
+    id: row.id,
+    organizationId: organizationDomainId(row.organization_id),
+    name: row.name,
+    polygon: row.polygon,
+    active: Boolean(row.active),
+    createdAt: iso(row.created_at),
+    updatedAt: iso(row.updated_at),
+  })) as ServiceTerritory[];
+  serviceTerritories.splice(0, serviceTerritories.length, ...loadedTerritories);
   if (!preserveShowcaseFixtures) drivers.splice(0, drivers.length, ...loadedDrivers);
   else {
     const loadedShowcaseDrivers = loadedDrivers.filter(
@@ -857,6 +889,56 @@ export async function persistOrderAndDriver(order: Order, driver: Driver) {
   } finally {
     client.release();
   }
+}
+export async function persistCustomerAddress(entry: CustomerAddressBookEntry) {
+  if (!dbEnabled || !pool) return;
+  await pool.query(
+    `INSERT INTO customer_addresses(id,organization_id,user_id,label,address,delivery_notes,contact_name,created_at,updated_at)
+     VALUES($1,$2,$3,$4,$5::jsonb,$6,$7,$8,$9)
+     ON CONFLICT(id) DO UPDATE SET label=EXCLUDED.label,address=EXCLUDED.address,delivery_notes=EXCLUDED.delivery_notes,contact_name=EXCLUDED.contact_name,updated_at=EXCLUDED.updated_at`,
+    [
+      asUuid(entry.id),
+      organizationUuid(entry.organizationId),
+      asUuid(entry.userId),
+      entry.label,
+      JSON.stringify(entry.address),
+      entry.deliveryNotes || null,
+      entry.contactName || null,
+      entry.createdAt,
+      entry.updatedAt,
+    ],
+  );
+}
+export async function deleteCustomerAddress(id: string, organizationId: string, userId: string) {
+  if (!dbEnabled || !pool) return;
+  await pool.query(
+    `DELETE FROM customer_addresses WHERE id=$1 AND organization_id=$2 AND user_id=$3`,
+    [asUuid(id), organizationUuid(organizationId), asUuid(userId)],
+  );
+}
+export async function persistServiceTerritory(territory: ServiceTerritory) {
+  if (!dbEnabled || !pool) return;
+  await pool.query(
+    `INSERT INTO service_territories(id,organization_id,name,polygon,active,created_at,updated_at)
+     VALUES($1,$2,$3,$4::jsonb,$5,$6,$7)
+     ON CONFLICT(id) DO UPDATE SET name=EXCLUDED.name,polygon=EXCLUDED.polygon,active=EXCLUDED.active,updated_at=EXCLUDED.updated_at`,
+    [
+      asUuid(territory.id),
+      organizationUuid(territory.organizationId),
+      territory.name,
+      JSON.stringify(territory.polygon),
+      territory.active,
+      territory.createdAt,
+      territory.updatedAt,
+    ],
+  );
+}
+export async function deleteServiceTerritory(id: string, organizationId: string) {
+  if (!dbEnabled || !pool) return;
+  await pool.query(
+    `DELETE FROM service_territories WHERE id=$1 AND organization_id=$2`,
+    [asUuid(id), organizationUuid(organizationId)],
+  );
 }
 export function persistenceMode() {
   return dbEnabled ? "postgresql" : "memory-demo";

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Building2, Copy, KeyRound, Plug, Save, ShieldCheck, UserCog, Webhook } from "lucide-react";
+import { Building2, Copy, KeyRound, MapPin, Plug, Save, ShieldCheck, UserCog, Webhook } from "lucide-react";
 import type {
   AuditRecord,
   BillingSummary,
@@ -9,6 +9,7 @@ import type {
   PaymentReconciliationSummary,
   PaymentSettlementSummary,
   Role,
+  ServiceTerritory,
   User,
 } from "@routepulse/shared";
 import { api } from "../lib/api";
@@ -21,11 +22,14 @@ export function AdminPage() {
   const [billing, setBilling] = useState<BillingSummary | null>(null);
   const [reconciliation, setReconciliation] = useState<PaymentReconciliationSummary | null>(null);
   const [settlements, setSettlements] = useState<PaymentSettlementSummary | null>(null);
+  const [territories, setTerritories] = useState<ServiceTerritory[]>([]);
   const [apiKeys, setApiKeys] = useState<IntegrationApiKeySummary[]>([]);
   const [webhooks, setWebhooks] = useState<IntegrationWebhookSummary[]>([]);
   const [keyName, setKeyName] = useState("Operations API");
   const [webhookUrl, setWebhookUrl] = useState("");
   const [settlementCsv, setSettlementCsv] = useState("");
+  const [territoryName, setTerritoryName] = useState("");
+  const [territoryPolygon, setTerritoryPolygon] = useState("[{\"lat\":12.90,\"lng\":77.50},{\"lat\":13.05,\"lng\":77.50},{\"lat\":13.05,\"lng\":77.70},{\"lat\":12.90,\"lng\":77.70}]");
   const [revealedSecret, setRevealedSecret] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -35,7 +39,7 @@ export function AdminPage() {
     setLoading(true);
     setError("");
     try {
-      const [team, records, configuration, billingSummary, paymentReconciliation, paymentSettlements, keys, hooks] = await Promise.all([
+      const [team, records, configuration, billingSummary, paymentReconciliation, paymentSettlements, keys, hooks, territoryRows] = await Promise.all([
         api.adminUsers(),
         api.audit(),
         api.settings(),
@@ -44,6 +48,7 @@ export function AdminPage() {
         api.paymentSettlements(),
         api.integrationApiKeys(),
         api.integrationWebhooks(),
+        api.serviceTerritories(),
       ]);
       setUsers(team);
       setAudit(records);
@@ -53,6 +58,7 @@ export function AdminPage() {
       setSettlements(paymentSettlements);
       setApiKeys(keys);
       setWebhooks(hooks);
+      setTerritories(territoryRows);
     } catch (reason) {
       setError(
         reason instanceof Error
@@ -93,6 +99,27 @@ export function AdminPage() {
     } finally {
       setBusy(false);
     }
+  };
+  const createTerritory = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (busy || !territoryName.trim()) return;
+    setBusy(true); setError(""); setMessage("");
+    try {
+      const polygon = JSON.parse(territoryPolygon) as Array<{ lat: number; lng: number }>;
+      const created = await api.createServiceTerritory({ name: territoryName.trim(), polygon, active: true });
+      setTerritories((current) => [created, ...current]);
+      setTerritoryName("");
+      setMessage("Service territory created. New orders are checked against active territories.");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Enter a valid polygon JSON array");
+    } finally { setBusy(false); }
+  };
+  const removeTerritory = async (id: string) => {
+    if (busy) return;
+    setBusy(true); setError("");
+    try { await api.deleteServiceTerritory(id); setTerritories((current) => current.filter((territory) => territory.id !== id)); }
+    catch (reason) { setError(reason instanceof Error ? reason.message : "Unable to delete territory"); }
+    finally { setBusy(false); }
   };
   const createKey = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -257,6 +284,7 @@ export function AdminPage() {
         </div>
       )}
       {tab === "settings" && settings && (
+        <>
         <form className="panel settings-form" onSubmit={save}>
           <div className="panel-head">
             <div>
@@ -331,6 +359,20 @@ export function AdminPage() {
             {busy ? "Saving…" : "Save settings"}
           </button>
         </form>
+        <div className="panel settings-form territory-settings">
+          <div className="panel-head"><div><span className="eyebrow">Service coverage</span><h3>Delivery territories</h3></div><MapPin /></div>
+          <p className="muted-copy">Add a polygon as JSON coordinates. When at least one active territory exists, new drop-offs outside all polygons are rejected before dispatch.</p>
+          <form onSubmit={createTerritory} className="form-grid">
+            <label>Territory name<input value={territoryName} onChange={(event) => setTerritoryName(event.target.value)} placeholder="Bengaluru core" required /></label>
+            <label className="span-2">Polygon JSON<textarea value={territoryPolygon} onChange={(event) => setTerritoryPolygon(event.target.value)} rows={3} /></label>
+            <button className="button primary span-2" disabled={busy}><MapPin /> Add territory</button>
+          </form>
+          <div className="territory-list">
+            {territories.map((territory) => <div className="integration-row" key={territory.id}><span><strong>{territory.name}</strong><small>{territory.polygon.length} points · {territory.active ? "active" : "inactive"}</small></span><button className="button ghost danger" onClick={() => void removeTerritory(territory.id)} disabled={busy}>Delete</button></div>)}
+            {!territories.length && <small className="muted-copy">No territories configured; all validated coordinates are currently allowed.</small>}
+          </div>
+        </div>
+        </>
       )}
       {tab === "audit" && (
         <div className="panel audit-list">

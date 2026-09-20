@@ -32,6 +32,8 @@ Driver geolocation ──Socket.IO──> validated location store + tenant/trac
 | ParcelScan        | id, tenant/order, parcelCode, stage (`pickup`/`hub`/`delivery`), scanner, timestamp; unique per order/stage                                                                               |
 | SupportTicket     | id, tenant/order/customer, subject, category, priority, status, assignee, timestamps                                                                                                      |
 | SupportMessage    | id, ticket, sender/role, message, internal flag, timestamp                                                                                                                                |
+| CustomerAddress   | tenant/user-owned shortcut, address coordinates/label, delivery notes/contact, created/updated timestamps |
+| ServiceTerritory  | tenant, name, polygon coordinates, active flag, created/updated timestamps; active polygons gate new drop-offs |
 | Route             | id, driverId, date, orderedStops, distanceKm, durationMin, status                                                                                                                         |
 | RouteRun          | tenant, driver, ordered order IDs/stops, draft/published/in-progress/completed status, optimistic version, publish/completion timestamps |
 | OrderEvent        | id, orderId, type, actorId, payload, createdAt                                                                                                                                            |
@@ -90,6 +92,9 @@ All private endpoints require `Authorization: Bearer <JWT>`. Demo login accepts 
 | POST      | `/api/payments/demo/:orderId/confirm`               | demo only                        | simulate settlement                           |
 | GET       | `/api/analytics/summary?days=7|30|90`              | dispatcher/admin                 | SLA, route, geofence, driver, zone and period-comparison metrics |
 | GET       | `/api/track/:code`                                  | public                           | privacy-minimized tracking snapshot           |
+| GET/POST/PATCH/DELETE | `/api/customer/addresses`, `/api/customer/addresses/:id` | customer owner | private saved destinations and delivery preferences |
+| GET/POST/PATCH/DELETE | `/api/territories`, `/api/territories/:id` | operations/admin | manage tenant service polygons |
+| POST      | `/api/territories/validate`                         | authenticated | validate a coordinate against active service polygons |
 | GET       | `/health`                                           | public                           | liveness and adapter modes                    |
 
 Socket client events: `location:update`, `order:subscribe`. Server events: `driver:location`, `order:updated`, `notification:updated`. Tenant room membership is derived from authenticated claims, never supplied tenant IDs.
