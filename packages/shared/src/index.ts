@@ -373,6 +373,19 @@ export interface BulkOrderImportResult {
   createdOrders: Order[];
   issues: BulkOrderImportIssue[];
 }
+export type BulkImportJobStatus = "queued" | "running" | "completed" | "failed";
+export interface BulkImportJobSummary {
+  id: string;
+  organizationId: string;
+  status: BulkImportJobStatus;
+  totalRows?: number;
+  validRows?: number;
+  invalidRows?: number;
+  result?: BulkOrderImportResult;
+  error?: string;
+  createdAt: string;
+  updatedAt: string;
+}
 export interface TrackingSnapshot {
   trackingCode: string;
   customerName: string;

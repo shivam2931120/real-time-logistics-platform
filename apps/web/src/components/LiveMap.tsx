@@ -15,6 +15,7 @@ import {
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import type { Driver, Order } from "@routepulse/shared";
+import type { Feature, Geometry } from "geojson";
 import { api, type MapSearchResult } from "../lib/api";
 import {
   readCurrentLocation,
@@ -32,6 +33,9 @@ type Props = {
   geofenceRadiusMeters?: number;
   onOrderSelect?: (order: Order) => void;
   onDriverSelect?: (driver: Driver) => void;
+  territoryDrawMode?: boolean;
+  territoryDraft?: Point[];
+  onTerritoryDraftChange?: (points: Point[]) => void;
 };
 const FALLBACK_STYLE = "https://tiles.openfreemap.org/styles/liberty";
 const DEFAULT_MAP_CENTER: [number, number] = [77.606, 12.961];
@@ -85,6 +89,9 @@ export function LiveMap({
   geofenceRadiusMeters = 150,
   onOrderSelect,
   onDriverSelect,
+  territoryDrawMode = false,
+  territoryDraft = [],
+  onTerritoryDraftChange,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
@@ -97,6 +104,8 @@ export function LiveMap({
   const lastTrailPointRef = useRef<Record<string, string>>({});
   const ordersRef = useRef(orders);
   const onOrderSelectRef = useRef(onOrderSelect);
+  const territoryDrawModeRef = useRef(territoryDrawMode);
+  const onTerritoryDraftChangeRef = useRef(onTerritoryDraftChange);
   const fittedRef = useRef(false);
   const [loaded, setLoaded] = useState(false);
   const [mapError, setMapError] = useState("");
@@ -122,6 +131,7 @@ export function LiveMap({
   const [searchResults, setSearchResults] = useState<MapSearchResult[]>([]);
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState("");
+  const territoryDraftRef = useRef<Point[]>(territoryDraft);
   const activeOrders = useMemo(() => orders.filter(activeOrder), [orders]);
   const routeKey = useMemo(
     () =>
@@ -211,7 +221,9 @@ export function LiveMap({
   useEffect(() => {
     ordersRef.current = orders;
     onOrderSelectRef.current = onOrderSelect;
-  }, [onOrderSelect, orders]);
+    territoryDrawModeRef.current = territoryDrawMode;
+    onTerritoryDraftChangeRef.current = onTerritoryDraftChange;
+  }, [onOrderSelect, onTerritoryDraftChange, orders, territoryDrawMode]);
 
   useEffect(() => {
     const timer = window.setInterval(() => setClock(Date.now()), 30_000);
@@ -323,6 +335,34 @@ export function LiveMap({
       map.addSource("geofences", {
         type: "geojson",
         data: { type: "FeatureCollection", features: [] },
+      });
+      map.addSource("territory-draft", {
+        type: "geojson",
+        data: { type: "FeatureCollection", features: [] },
+      });
+      map.addLayer({
+        id: "territory-draft-fill",
+        type: "fill",
+        source: "territory-draft",
+        paint: { "fill-color": "#a78bfa", "fill-opacity": 0.13 },
+      });
+      map.addLayer({
+        id: "territory-draft-line",
+        type: "line",
+        source: "territory-draft",
+        paint: { "line-color": "#a78bfa", "line-width": 3, "line-dasharray": [2, 1] },
+      });
+      map.addLayer({
+        id: "territory-draft-points",
+        type: "circle",
+        source: "territory-draft",
+        paint: { "circle-color": "#a78bfa", "circle-radius": 5, "circle-stroke-color": "#020304", "circle-stroke-width": 2 },
+      });
+      map.on("click", (event) => {
+        if (!territoryDrawModeRef.current || !onTerritoryDraftChangeRef.current) return;
+        const next = [...(territoryDraftRef.current || []), { lat: event.lngLat.lat, lng: event.lngLat.lng }];
+        territoryDraftRef.current = next;
+        onTerritoryDraftChangeRef.current(next);
       });
       map.addSource("user-location-accuracy", {
         type: "geojson",
@@ -789,6 +829,26 @@ export function LiveMap({
   ]);
 
   useEffect(() => {
+    territoryDraftRef.current = territoryDraft;
+    const map = mapRef.current;
+    if (!map || !loaded || !map.getSource("territory-draft")) return;
+    const features: Feature[] = [];
+    const coordinates = territoryDraft.map((point) => [point.lng, point.lat] as [number, number]);
+    if (coordinates.length >= 2) features.push({ type: "Feature", properties: {}, geometry: { type: coordinates.length >= 3 ? "Polygon" : "LineString", coordinates: coordinates.length >= 3 ? [[...coordinates, coordinates[0]!]] : coordinates } as Geometry } as Feature);
+    features.push(...coordinates.map((coordinate): Feature => ({ type: "Feature", properties: {}, geometry: { type: "Point", coordinates: coordinate } })));
+    (map.getSource("territory-draft") as maplibregl.GeoJSONSource).setData({ type: "FeatureCollection", features });
+  }, [loaded, territoryDraft]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !loaded) return;
+    map.getCanvas().style.cursor = territoryDrawMode ? "crosshair" : "";
+    return () => {
+      map.getCanvas().style.cursor = "";
+    };
+  }, [loaded, territoryDrawMode]);
+
+  useEffect(() => {
     const map = mapRef.current;
     if (!map || !loaded) return;
     const visibility = (value: boolean) => (value ? "visible" : "none");
@@ -1000,6 +1060,7 @@ export function LiveMap({
         >
           <History /> Trails
         </button>
+        {territoryDrawMode && <span className="map-draw-hint">Click map to add territory vertices</span>}
         <button
           type="button"
           onClick={locate}

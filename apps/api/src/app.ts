@@ -105,6 +105,11 @@ import {
 } from "./services/settlements.js";
 import { parseBulkOrderCsv } from "./services/bulkOrders.js";
 import {
+  configureBulkImportProcessor,
+  enqueueBulkImport,
+  getBulkImportJob,
+} from "./services/bulkImportQueue.js";
+import {
   acquireIdempotencyLock,
   getIdempotencyResult,
   rememberIdempotencyResult,
@@ -751,99 +756,105 @@ export function createApp() {
       }
     },
   );
+  const runBulkImport = async (actor: User, csv: string, dryRun: boolean) => {
+    const created: Order[] = [];
+    const parsed = parseBulkOrderCsv(csv);
+    const issues = [...parsed.issues];
+    const candidates: Array<{ input: z.infer<typeof createSchema>; row: number }> = [];
+    const knownParcelCodes = new Set(
+      store.listOrders(actor.organizationId).map((order) => order.parcelCode).filter(Boolean),
+    );
+    for (const candidate of parsed.candidates) {
+      const input = {
+        customerName: candidate.customerName,
+        customerEmail: candidate.customerEmail,
+        pickup: { label: candidate.pickupLabel, lat: Number(candidate.pickupLat), lng: Number(candidate.pickupLng) },
+        dropoff: { label: candidate.dropoffLabel, lat: Number(candidate.dropoffLat), lng: Number(candidate.dropoffLng) },
+        packageWeightKg: Number(candidate.packageWeightKg),
+        priority: candidate.priority.toLowerCase(),
+        amount: Number(candidate.amount),
+        currency: candidate.currency,
+        promisedAt: candidate.promisedAt,
+        deliveryWindowStart: candidate.deliveryWindowStart || undefined,
+        deliveryNotes: candidate.deliveryNotes || undefined,
+        parcelCode: candidate.parcelCode || undefined,
+        recipientPin: candidate.recipientPin || undefined,
+      };
+      const validated = createSchema.safeParse(input);
+      if (!validated.success) {
+        const first = validated.error.issues[0];
+        issues.push({ row: candidate.rowNumber, field: first?.path.join(".") || undefined, message: first?.message || "Invalid order values" });
+        continue;
+      }
+      if (validated.data.parcelCode && knownParcelCodes.has(validated.data.parcelCode)) {
+        issues.push({ row: candidate.rowNumber, field: "parcelCode", message: "Parcel code already exists" });
+        continue;
+      }
+      const serviceArea = validateServiceArea(actor.organizationId, validated.data.dropoff);
+      if (serviceArea.enforced && !serviceArea.inServiceArea) {
+        issues.push({ row: candidate.rowNumber, field: "dropoff", message: "Drop-off is outside every active service territory" });
+        continue;
+      }
+      if (validated.data.parcelCode) knownParcelCodes.add(validated.data.parcelCode);
+      candidates.push({ input: validated.data, row: candidate.rowNumber });
+    }
+    const result = { dryRun, totalRows: parsed.totalRows, validRows: candidates.length, invalidRows: issues.length, createdOrders: [] as Order[], issues };
+    if (dryRun || issues.length) return result;
+    try {
+      for (const candidate of candidates) {
+        const { recipientPin, ...orderInput } = candidate.input;
+        const order = store.createOrder(orderInput, actor);
+        store.setDeliveryPin(order.id, recipientPin);
+        created.push(order);
+        await persistOrder(order);
+        await audit(actor, "order.created", "order", order.id, { trackingCode: order.trackingCode, importRow: candidate.row });
+        await notifySafely(order, "order_created");
+      }
+    } catch (error) {
+      for (const order of created) {
+        const index = orders.indexOf(order);
+        if (index >= 0) orders.splice(index, 1);
+      }
+      throw error;
+    }
+    result.createdOrders = created.map(etaFor);
+    return result;
+  };
+  configureBulkImportProcessor(({ user, csv }) => runBulkImport(user, csv, false));
   app.post(
     "/api/orders/import",
     permit("admin", "dispatcher"),
     async (req, res, next) => {
-      const created: Order[] = [];
       try {
-        const body = z
-          .object({
-            csv: z.string().min(1).max(100_000),
-            dryRun: z.boolean().default(true),
-          })
-          .parse(req.body);
-        const parsed = parseBulkOrderCsv(body.csv);
-        const issues = [...parsed.issues];
-        const candidates: Array<{ input: z.infer<typeof createSchema>; row: number }> = [];
-        const knownParcelCodes = new Set(
-          store.listOrders(req.user!.organizationId).map((order) => order.parcelCode).filter(Boolean),
-        );
-        for (const candidate of parsed.candidates) {
-          const input = {
-            customerName: candidate.customerName,
-            customerEmail: candidate.customerEmail,
-            pickup: {
-              label: candidate.pickupLabel,
-              lat: Number(candidate.pickupLat),
-              lng: Number(candidate.pickupLng),
-            },
-            dropoff: {
-              label: candidate.dropoffLabel,
-              lat: Number(candidate.dropoffLat),
-              lng: Number(candidate.dropoffLng),
-            },
-            packageWeightKg: Number(candidate.packageWeightKg),
-            priority: candidate.priority.toLowerCase(),
-            amount: Number(candidate.amount),
-            currency: candidate.currency,
-            promisedAt: candidate.promisedAt,
-            deliveryWindowStart: candidate.deliveryWindowStart || undefined,
-            deliveryNotes: candidate.deliveryNotes || undefined,
-            parcelCode: candidate.parcelCode || undefined,
-            recipientPin: candidate.recipientPin || undefined,
-          };
-          const validated = createSchema.safeParse(input);
-          if (!validated.success) {
-            const first = validated.error.issues[0];
-            issues.push({
-              row: candidate.rowNumber,
-              field: first?.path.join(".") || undefined,
-              message: first?.message || "Invalid order values",
-            });
-            continue;
-          }
-          if (validated.data.parcelCode && knownParcelCodes.has(validated.data.parcelCode)) {
-            issues.push({ row: candidate.rowNumber, field: "parcelCode", message: "Parcel code already exists" });
-            continue;
-          }
-          const serviceArea = validateServiceArea(req.user!.organizationId, validated.data.dropoff);
-          if (serviceArea.enforced && !serviceArea.inServiceArea) {
-            issues.push({ row: candidate.rowNumber, field: "dropoff", message: "Drop-off is outside every active service territory" });
-            continue;
-          }
-          if (validated.data.parcelCode) knownParcelCodes.add(validated.data.parcelCode);
-          candidates.push({ input: validated.data, row: candidate.rowNumber });
-        }
-        const result = {
-          dryRun: body.dryRun,
-          totalRows: parsed.totalRows,
-          validRows: candidates.length,
-          invalidRows: issues.length,
-          createdOrders: [] as Order[],
-          issues,
-        };
-        if (body.dryRun || issues.length) return res.status(body.dryRun ? 200 : 422).json(result);
-        for (const candidate of candidates) {
-          const { recipientPin, ...orderInput } = candidate.input;
-          const order = store.createOrder(orderInput, req.user!);
-          store.setDeliveryPin(order.id, recipientPin);
-          created.push(order);
-          await persistOrder(order);
-          await audit(req.user!, "order.created", "order", order.id, { trackingCode: order.trackingCode, importRow: candidate.row });
-          await notifySafely(order, "order_created");
-        }
-        result.createdOrders = created.map(etaFor);
-        return res.status(201).json(result);
+        const body = z.object({ csv: z.string().min(1).max(100_000), dryRun: z.boolean().default(true) }).parse(req.body);
+        const result = await runBulkImport(req.user!, body.csv, body.dryRun);
+        return res.status(body.dryRun ? 200 : result.invalidRows ? 422 : 201).json(result);
       } catch (error) {
-        for (const order of created) {
-          const index = orders.indexOf(order);
-          if (index >= 0) orders.splice(index, 1);
-        }
         return next(error);
       }
     },
   );
+  app.post(
+    "/api/orders/import/jobs",
+    permit("admin", "dispatcher"),
+    async (req, res, next) => {
+      try {
+        const body = z.object({ csv: z.string().min(1).max(100_000) }).parse(req.body);
+        const job = await enqueueBulkImport({ user: req.user!, csv: body.csv });
+        return res.status(202).json(job);
+      } catch (error) {
+        return next(error);
+      }
+    },
+  );
+  app.get("/api/orders/import/jobs/:id", permit("admin", "dispatcher"), async (req, res, next) => {
+    try {
+      const job = await getBulkImportJob(String(req.params.id), req.user!.organizationId);
+      return job ? res.json(job) : res.status(404).json({ error: "Bulk import job not found" });
+    } catch (error) {
+      return next(error);
+    }
+  });
   app.get("/api/orders/:id", (req, res) => {
     const order = store.getOrder(req.params.id, req.user!.organizationId);
     if (!order) return res.status(404).json({ error: "Order not found" });

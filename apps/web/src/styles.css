@@ -4119,6 +4119,11 @@ td {
 .territory-settings { margin-top: 14px; }
 .territory-settings textarea { min-height: 72px; resize: vertical; font: 0.72rem/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; }
 .territory-list { margin-top: 12px; border-top: 1px solid #253142; }
+.territory-editor-map { height: 320px; margin: 12px 0; overflow: hidden; border: 1px solid #253142; border-radius: 4px; }
+.territory-editor-map .live-map { height: 100%; }
+.territory-editor-actions { align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+.territory-editor-actions small { flex: 1 1 220px; }
+.map-draw-hint { display: inline-flex; align-items: center; padding: 7px 9px; border: 1px dashed #a78bfa; color: #d8ccff; background: #a78bfa18; font-size: 0.68rem; }
 .self-service-form {
   display: grid;
   gap: 9px;

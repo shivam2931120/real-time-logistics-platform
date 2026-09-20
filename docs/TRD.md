@@ -85,6 +85,7 @@ All private endpoints require `Authorization: Bearer <JWT>`. Demo login accepts 
 | POST      | `/api/customer/orders/:id/cancel`                   | customer owner                   | Cancel pending/assigned delivery              |
 | GET/POST  | `/api/orders/:id/scans`                             | tenant / ops mutation            | Read or record idempotent parcel scan         |
 | POST      | `/api/orders/import`                               | admin/dispatcher                 | bounded CSV preview or idempotent batch creation with row-level validation |
+| POST/GET  | `/api/orders/import/jobs`, `/api/orders/import/jobs/:id` | admin/dispatcher              | queued batch dispatch and progress/result polling |
 | GET       | `/api/reports/orders.csv`                           | tenant roles                     | Delivery detail export                        |
 | GET       | `/api/reports/summary.csv?days=7|30|90`             | admin/dispatcher                 | expanded operational analytics export         |
 | GET/POST  | `/api/support/tickets`                              | tenant roles                     | List/create support tickets                   |
@@ -108,8 +109,9 @@ Socket client events: `location:update`, `order:subscribe`. Server events: `driv
 - Assignment and driver availability must commit atomically in a durable repository.
 - Payment callbacks are idempotent on provider event/reference and payment/order writes are committed atomically when PostgreSQL is enabled.
 - Location is high-volume operational state; the latest driver point and material arrival events are durable.
-- The database is authoritative; queue insertion follows durable job/outbox creation in the production repository.
+- The database is authoritative for domain records. Bulk import jobs use BullMQ when Redis is configured and retain a bounded process-local progress record; a production worker deployment should persist job/outbox state before accepting work.
 - SLA inbox tasks are derived from tenant-scoped operational state. Acknowledgement and resolution state is persisted in `sla_task_states` when PostgreSQL is enabled and remains process-local until that additive table is migrated.
+- Bulk dispatch supports an asynchronous BullMQ queue when `QUEUE_MODE=bullmq` and `REDIS_URL` are configured; inline mode still executes bounded jobs in-process and exposes the same progress contract.
 
 ## 6. Optimization
 

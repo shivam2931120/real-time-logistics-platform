@@ -840,4 +840,32 @@ describe("API", () => {
     expect(replay.body.id).toBe(first.body.id);
     expect(supportTickets.filter((ticket) => ticket.id === first.body.id)).toHaveLength(1);
   });
+  it("queues bulk imports and exposes job progress", async () => {
+    const auth = await token("dispatcher");
+    const csv = [
+      "customer_name,customer_email,pickup_label,pickup_lat,pickup_lng,dropoff_label,dropoff_lat,dropoff_lng,package_weight_kg,priority,amount,currency,promised_at",
+      `Queued Customer,queued@example.com,Hub,12.97,77.59,Home,12.95,77.61,1,standard,175,INR,${new Date(Date.now() + 3_600_000).toISOString()}`,
+    ].join("\n");
+    const queued = await request(app)
+      .post("/api/orders/import/jobs")
+      .set("authorization", `Bearer ${auth}`)
+      .send({ csv });
+    expect(queued.status).toBe(202);
+    expect(queued.body).toEqual(expect.objectContaining({ status: expect.stringMatching(/^(queued|running|completed)$/) }));
+    let completedStatus = 0;
+    let completedOrderCount = 0;
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+      const current = await request(app)
+        .get(`/api/orders/import/jobs/${queued.body.id}`)
+        .set("authorization", `Bearer ${auth}`);
+      if (current.body.status === "completed") {
+        completedStatus = current.status;
+        completedOrderCount = current.body.result?.createdOrders?.length || 0;
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    expect(completedStatus).toBe(200);
+    expect(completedOrderCount).toBe(1);
+  });
 });

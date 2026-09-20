@@ -13,6 +13,7 @@ import type {
   OrganizationSummary,
   OperationalAlert,
   BillingSummary,
+  BulkImportJobSummary,
   CustomerAddressBookEntry,
   PaymentReconciliationSummary,
   PaymentSettlementRow,
@@ -284,6 +285,14 @@ export const api = {
       body: JSON.stringify({ csv, dryRun }),
       ...(idempotencyKey ? { headers: { "Idempotency-Key": idempotencyKey } } : {}),
     }),
+  queueOrderImport: (csv: string, idempotencyKey?: string) =>
+    request<BulkImportJobSummary>("/api/orders/import/jobs", {
+      method: "POST",
+      body: JSON.stringify({ csv }),
+      ...(idempotencyKey ? { headers: { "Idempotency-Key": idempotencyKey } } : {}),
+    }),
+  bulkOrderImportJob: (id: string) =>
+    request<BulkImportJobSummary>(`/api/orders/import/jobs/${encodeURIComponent(id)}`),
   createException: (
     orderId: string,
     type: ExceptionType,

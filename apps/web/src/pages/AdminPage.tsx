@@ -9,11 +9,15 @@ import type {
   PaymentReconciliationSummary,
   PaymentSettlementSummary,
   BulkOrderImportResult,
+  BulkImportJobSummary,
   Role,
   ServiceTerritory,
   User,
 } from "@routepulse/shared";
 import { api } from "../lib/api";
+import { LiveMap } from "../components/LiveMap";
+
+type TerritoryPoint = { lat: number; lng: number };
 
 export function AdminPage() {
   const [users, setUsers] = useState<User[]>([]);
@@ -31,7 +35,11 @@ export function AdminPage() {
   const [settlementCsv, setSettlementCsv] = useState("");
   const [orderCsv, setOrderCsv] = useState("");
   const [orderImport, setOrderImport] = useState<BulkOrderImportResult | null>(null);
+  const [queuedJob, setQueuedJob] = useState<BulkImportJobSummary | null>(null);
   const [territoryName, setTerritoryName] = useState("");
+  const [territoryDrawMode, setTerritoryDrawMode] = useState(false);
+  const [territoryDraft, setTerritoryDraft] = useState<TerritoryPoint[]>([]);
+  const [editingTerritoryId, setEditingTerritoryId] = useState<string | null>(null);
   const [territoryPolygon, setTerritoryPolygon] = useState("[{\"lat\":12.90,\"lng\":77.50},{\"lat\":13.05,\"lng\":77.50},{\"lat\":13.05,\"lng\":77.70},{\"lat\":12.90,\"lng\":77.70}]");
   const [revealedSecret, setRevealedSecret] = useState("");
   const [message, setMessage] = useState("");
@@ -113,6 +121,28 @@ export function AdminPage() {
       setError(reason instanceof Error ? reason.message : "Unable to create imported orders");
     } finally { setBusy(false); }
   };
+  const queueOrders = async () => {
+    if (busy || !orderCsv.trim() || !orderImport || orderImport.invalidRows > 0 || orderImport.validRows === 0) return;
+    setBusy(true); setError(""); setMessage("");
+    try {
+      const initial = await api.queueOrderImport(orderCsv, `bulk-queue-${crypto.randomUUID()}`);
+      setQueuedJob(initial);
+      setMessage(`Batch ${initial.id.slice(0, 8)} queued. Processing will continue in the background.`);
+      for (let attempt = 0; attempt < 60; attempt += 1) {
+        await new Promise((resolve) => window.setTimeout(resolve, 1000));
+        const current = await api.bulkOrderImportJob(initial.id);
+        setQueuedJob(current);
+        if (current.status === "completed" || current.status === "failed") {
+          if (current.result) setOrderImport(current.result);
+          if (current.status === "completed") { setOrderCsv(""); setMessage(`Background batch created ${current.result?.createdOrders.length || 0} deliveries.`); }
+          else setError(current.error || "Background batch failed");
+          break;
+        }
+      }
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Unable to queue order batch");
+    } finally { setBusy(false); }
+  };
   const reviewSettlement = async (id: string, reviewStatus: "accepted" | "rejected") => {
     if (busy) return;
     setBusy(true);
@@ -132,14 +162,33 @@ export function AdminPage() {
     if (busy || !territoryName.trim()) return;
     setBusy(true); setError(""); setMessage("");
     try {
-      const polygon = JSON.parse(territoryPolygon) as Array<{ lat: number; lng: number }>;
-      const created = await api.createServiceTerritory({ name: territoryName.trim(), polygon, active: true });
-      setTerritories((current) => [created, ...current]);
+      const parsed = JSON.parse(territoryPolygon) as TerritoryPoint[];
+      const polygon = territoryDraft.length >= 3 ? territoryDraft : parsed;
+      if (!Array.isArray(polygon) || polygon.length < 3) throw new Error("Draw at least three points or enter a polygon JSON array.");
+      if (editingTerritoryId) {
+        const updated = await api.updateServiceTerritory(editingTerritoryId, { name: territoryName.trim(), polygon });
+        setTerritories((current) => current.map((item) => item.id === updated.id ? updated : item));
+        setMessage("Service territory updated.");
+      } else {
+        const created = await api.createServiceTerritory({ name: territoryName.trim(), polygon, active: true });
+        setTerritories((current) => [created, ...current]);
+        setMessage("Service territory created. New orders are checked against active territories.");
+      }
       setTerritoryName("");
-      setMessage("Service territory created. New orders are checked against active territories.");
+      setTerritoryDraft([]);
+      setTerritoryDrawMode(false);
+      setEditingTerritoryId(null);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Enter a valid polygon JSON array");
     } finally { setBusy(false); }
+  };
+  const editTerritory = (territory: ServiceTerritory) => {
+    setEditingTerritoryId(territory.id);
+    setTerritoryName(territory.name);
+    setTerritoryDraft(territory.polygon);
+    setTerritoryPolygon(JSON.stringify(territory.polygon));
+    setTerritoryDrawMode(true);
+    setMessage(`Editing ${territory.name}. Click the map to add points or undo the last point.`);
   };
   const removeTerritory = async (id: string) => {
     if (busy) return;
@@ -412,14 +461,34 @@ export function AdminPage() {
         </form>
         <div className="panel settings-form territory-settings">
           <div className="panel-head"><div><span className="eyebrow">Service coverage</span><h3>Delivery territories</h3></div><MapPin /></div>
-          <p className="muted-copy">Add a polygon as JSON coordinates. When at least one active territory exists, new drop-offs outside all polygons are rejected before dispatch.</p>
+          <div className="territory-editor-map" aria-label="Territory map editor">
+            <LiveMap
+              drivers={[]}
+              orders={[]}
+              territoryDrawMode={territoryDrawMode}
+              territoryDraft={territoryDraft}
+              onTerritoryDraftChange={(points) => setTerritoryDraft(points)}
+            />
+          </div>
+          <div className="inline-form territory-editor-actions">
+            <button type="button" className={`button ${territoryDrawMode ? "primary" : "ghost"}`} onClick={() => setTerritoryDrawMode((value) => !value)}>
+              <MapPin /> {territoryDrawMode ? "Stop drawing" : "Draw on map"}
+            </button>
+            <button type="button" className="button ghost" onClick={() => setTerritoryDraft((points) => points.slice(0, -1))} disabled={!territoryDraft.length}>Undo point</button>
+            <button type="button" className="button ghost danger" onClick={() => setTerritoryDraft([])} disabled={!territoryDraft.length}>Clear points</button>
+            <small className="muted-copy">{territoryDraft.length ? `${territoryDraft.length} point${territoryDraft.length === 1 ? "" : "s"} selected` : "Click Draw on map, then select at least three points."}</small>
+          </div>
+          <p className="muted-copy">Add a polygon by clicking the map or entering JSON coordinates. When at least one active territory exists, new drop-offs outside all polygons are rejected before dispatch.</p>
           <form onSubmit={createTerritory} className="form-grid">
             <label>Territory name<input value={territoryName} onChange={(event) => setTerritoryName(event.target.value)} placeholder="Bengaluru core" required /></label>
             <label className="span-2">Polygon JSON<textarea value={territoryPolygon} onChange={(event) => setTerritoryPolygon(event.target.value)} rows={3} /></label>
-            <button className="button primary span-2" disabled={busy}><MapPin /> Add territory</button>
+            <div className="inline-form span-2">
+              <button className="button primary" disabled={busy}><MapPin /> {editingTerritoryId ? "Save territory" : "Add territory"}</button>
+              {editingTerritoryId && <button type="button" className="button ghost" onClick={() => { setEditingTerritoryId(null); setTerritoryName(""); setTerritoryDraft([]); setTerritoryDrawMode(false); }}>Cancel edit</button>}
+            </div>
           </form>
           <div className="territory-list">
-            {territories.map((territory) => <div className="integration-row" key={territory.id}><span><strong>{territory.name}</strong><small>{territory.polygon.length} points · {territory.active ? "active" : "inactive"}</small></span><button className="button ghost danger" onClick={() => void removeTerritory(territory.id)} disabled={busy}>Delete</button></div>)}
+            {territories.map((territory) => <div className="integration-row" key={territory.id}><span><strong>{territory.name}</strong><small>{territory.polygon.length} points · {territory.active ? "active" : "inactive"}</small></span><span className="settlement-actions"><button className="button ghost" onClick={() => editTerritory(territory)} disabled={busy}>Edit</button><button className="button ghost danger" onClick={() => void removeTerritory(territory.id)} disabled={busy}>Delete</button></span></div>)}
             {!territories.length && <small className="muted-copy">No territories configured; all validated coordinates are currently allowed.</small>}
           </div>
         </div>
@@ -462,9 +531,11 @@ export function AdminPage() {
             <textarea value={orderCsv} onChange={(event) => setOrderCsv(event.target.value)} rows={8} aria-label="Order import CSV" placeholder="customer_name,customer_email,pickup_label,pickup_lat,pickup_lng,dropoff_label,dropoff_lat,dropoff_lng,package_weight_kg,priority,amount,currency,promised_at\nAnanya Rao,ananya@example.com,Hub,12.97,77.59,Home,12.95,77.61,2,standard,250,INR,2026-09-22T12:00:00.000Z" />
             <div className="inline-form">
               <button className="button primary" disabled={busy || !orderCsv.trim()}>{busy ? "Checking…" : "Preview CSV"}</button>
-              <button type="button" className="button ghost" disabled={busy || !orderImport || orderImport.invalidRows > 0 || orderImport.validRows === 0} onClick={() => void commitOrders()}>Create deliveries</button>
+              <button type="button" className="button ghost" disabled={busy || !orderImport || orderImport.invalidRows > 0 || orderImport.validRows === 0} onClick={() => void commitOrders()}>Create now</button>
+              <button type="button" className="button ghost" disabled={busy || !orderImport || orderImport.invalidRows > 0 || orderImport.validRows === 0} onClick={() => void queueOrders()}>Queue dispatch</button>
             </div>
           </form>
+          {queuedJob && <p className="muted-copy" role="status">Background job {queuedJob.id.slice(0, 8)} · {queuedJob.status}{queuedJob.totalRows !== undefined ? ` · ${queuedJob.validRows || 0}/${queuedJob.totalRows} valid` : ""}</p>}
           {orderImport && <div className="bulk-import-result">
             <div className="reconciliation-metrics"><span><strong>{orderImport.totalRows}</strong><small>rows</small></span><span><strong>{orderImport.validRows}</strong><small>valid</small></span><span><strong>{orderImport.invalidRows}</strong><small>rejected</small></span><span><strong>{orderImport.createdOrders.length}</strong><small>created</small></span></div>
             {orderImport.issues.map((issue) => <div className="reconciliation-row" key={`${issue.row}-${issue.field || "row"}`}><span><strong>Row {issue.row}</strong><small>{issue.field || "row"} · {issue.message}</small></span><span className="reconciliation-status has-mismatch">REJECTED</span></div>)}
