@@ -172,6 +172,14 @@ export const api = {
     request<Array<{ lat: number; lng: number; accuracy?: number; source: string; recordedAt: string }>>(
       `/api/drivers/${encodeURIComponent(id)}/locations?limit=${limit}`,
     ),
+  updateDriverLocation: (
+    id: string,
+    data: { lat: number; lng: number; accuracy?: number; source?: string; recordedAt?: string },
+  ) =>
+    request<{ driverId: string; location: { lat: number; lng: number }; lastSeenAt: string }>(
+      `/api/drivers/${encodeURIComponent(id)}/location`,
+      { method: "POST", body: JSON.stringify(data) },
+    ),
   analytics: (days = 7) =>
     request<AnalyticsSummary>(`/api/analytics/summary?days=${days}`),
   mapRoute: (
@@ -313,6 +321,16 @@ export const api = {
     request<Order>(`/api/customer/orders/${id}/cancel`, {
       method: "POST",
       body: "{}",
+    }),
+  requestReturn: (id: string, reason: string) =>
+    request<Order>(`/api/customer/orders/${id}/return`, {
+      method: "POST",
+      body: JSON.stringify({ reason }),
+    }),
+  reviewReturn: (id: string, status: "approved" | "rejected", note?: string) =>
+    request<Order>(`/api/orders/${id}/return`, {
+      method: "PATCH",
+      body: JSON.stringify({ status, note }),
     }),
   scans: (id: string) => request<ParcelScan[]>(`/api/orders/${id}/scans`),
   scan: (id: string, data: { parcelCode: string; stage: ParcelScanStage }) =>

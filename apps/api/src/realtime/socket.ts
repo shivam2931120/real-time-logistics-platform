@@ -8,7 +8,7 @@ import {
   supportTickets,
   users,
 } from "../domain/store.js";
-import { persistDriver, persistDriverLocation, persistOrder } from "../db/persistence.js";
+import { persistDriverAndLocation, persistOrder } from "../db/persistence.js";
 import { resolveClerkUser } from "../services/clerkIdentity.js";
 import { demoAuthEnabled, demoUserForRole } from "../services/demoAuth.js";
 import { geofenceTransitions } from "../services/geofence.js";
@@ -125,10 +125,15 @@ export function configureSockets(io: Server) {
       if (!d) return ack?.({ error: "Driver identity required" });
       d.location = { lat: p.lat, lng: p.lng };
       d.lastSeenAt = new Date().toISOString();
-      void persistDriver(d);
-      void persistDriverLocation(d, {
+      void persistDriverAndLocation(d, {
         accuracy: typeof p.accuracy === "number" ? p.accuracy : undefined,
         source: p.source || "gps",
+      }).catch((error) => {
+        console.error(JSON.stringify({
+          event: "driver.location_persist_failed",
+          driverId: d?.id,
+          error: error instanceof Error ? error.message : "Unknown error",
+        }));
       });
       const update = {
         driverId: d.id,

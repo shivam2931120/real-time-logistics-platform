@@ -1,5 +1,5 @@
 import Razorpay from "razorpay";
-import { createHmac } from "node:crypto";
+import { createHmac, timingSafeEqual } from "node:crypto";
 import type { Order } from "@routepulse/shared";
 import {
   asUuid,
@@ -8,6 +8,12 @@ import {
 } from "../db/persistence.js";
 
 const razorpayOrders = new Map<string, string>();
+
+const safeCompare = (expected: string, received: string) => {
+  const expectedBytes = Buffer.from(expected, "utf8");
+  const receivedBytes = Buffer.from(received, "utf8");
+  return expectedBytes.length === receivedBytes.length && timingSafeEqual(expectedBytes, receivedBytes);
+};
 
 export async function createCheckout(order: Order) {
   if (!process.env.RAZORPAY_KEY_ID || !process.env.RAZORPAY_KEY_SECRET)
@@ -63,7 +69,7 @@ export async function verifyRazorpayPayment(
   const expected = createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
     .update(`${razorpayOrderId}|${paymentId}`)
     .digest("hex");
-  if (expected !== signature) return false;
+  if (!safeCompare(expected, signature)) return false;
   return true;
 }
 
@@ -79,7 +85,7 @@ export function verifyRazorpayWebhook(raw: Buffer, signature: string) {
   const expected = createHmac("sha256", process.env.RAZORPAY_WEBHOOK_SECRET)
     .update(raw)
     .digest("hex");
-  return expected === signature;
+  return safeCompare(expected, signature);
 }
 
 export const paymentMode = () =>

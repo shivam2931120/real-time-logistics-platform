@@ -20,7 +20,11 @@ const now = () => new Date().toISOString();
 const org = "org_demo";
 // Seeded fixtures are useful for local development and automated tests, but
 // production Clerk sessions must start from PostgreSQL only.
-const includeDemoFixtures = process.env.AUTH_MODE !== "clerk";
+// Clerk production sessions are backed by PostgreSQL. The public showcase is
+// the one deliberate exception: when its sandbox is enabled, keep the seeded
+// in-memory workspace available to demo tokens without creating Clerk users.
+const includeDemoFixtures =
+  process.env.AUTH_MODE !== "clerk" || process.env.DEMO_AUTH_ENABLED === "true";
 const distanceKm = (order: Order) => {
   const radius = 6371;
   const radians = Math.PI / 180;

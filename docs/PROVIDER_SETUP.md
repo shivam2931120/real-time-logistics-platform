@@ -2,14 +2,14 @@
 
 The source tree contains no provider secrets. Enter backend values in local `apps/api/.env` and frontend values in `apps/web/.env.local` for development. For deployment, use Render/Vercel dashboard environment variables.
 
-Current local completion requires no additional values: demo JWT auth, PostgreSQL, Redis queue insertion, simulated payment, and simulated email are usable as-is. To activate external services, provide only the values for the provider you want enabled:
+The application now has separate liveness/readiness checks, durable driver-location writes, idempotent payment webhooks, customer return requests, and a deployable BullMQ notification worker. Local development can still use the simulated adapters; hosted production should enable the real providers listed below.
 
 | Provider    | Put these variables here                                                                                                                            |
 | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Clerk       | `CLERK_SECRET_KEY`, `CLERK_WEBHOOK_SIGNING_SECRET`, and `AUTH_MODE=clerk` in `apps/api/.env`; `VITE_CLERK_PUBLISHABLE_KEY` in `apps/web/.env.local` |
 | Razorpay    | `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET` in `apps/api/.env`                                                              |
 | Google SMTP | `GOOGLE_SMTP_USER`, `GOOGLE_SMTP_APP_PASSWORD`, `EMAIL_FROM` in `apps/api/.env`                                                                     |
-| Hosted API  | managed `DATABASE_URL`, managed `REDIS_URL`, and deployed `WEB_ORIGIN` in Render                                                                    |
+| Hosted API  | managed `DATABASE_URL`, managed `REDIS_URL`, `APP_ENV=production`, and deployed `WEB_ORIGIN` in Render                                                |
 | Hosted web  | deployed `VITE_API_URL` and optional `VITE_MAP_STYLE` in Vercel                                                                                     |
 
 Do not paste secret values into chat or commit either environment file. Set them directly in the named local file or hosting dashboard.
@@ -21,9 +21,12 @@ Do not paste secret values into chat or commit either environment file. Set them
 | Variable                       | When it is needed                                                                                     |
 | ------------------------------ | ----------------------------------------------------------------------------------------------------- |
 | `PORT`                         | Optional; API port, defaults to `4000`                                                                |
+| `APP_ENV`                     | `development`, `staging`, or `production`; controls readiness requirements                             |
+| `STRICT_CONFIG`               | Set to `true` only after all required production values are present; startup then fails on drift      |
 | `WEB_ORIGIN`                   | Required when the frontend is hosted; comma-separated allowed origins                                 |
 | `JWT_SECRET`                   | Required for secure demo JWT sessions; use a long random value outside local development              |
 | `AUTH_MODE`                    | Set to `demo` for seeded login or `clerk` for Clerk sessions                                          |
+| `DEMO_AUTH_ENABLED`            | Keep `true` for the public showcase; set `false` in the real production tenant                       |
 | `DEFAULT_ORGANIZATION_ID`      | Clerk fallback tenant; local demo uses `org_demo`                                                     |
 | `DATABASE_URL`                 | Required for durable PostgreSQL persistence; without it the API uses memory-demo mode                 |
 | `DB_POOL_MAX`                  | Optional PostgreSQL connection cap; defaults to `5` for free poolers                                  |
@@ -41,6 +44,7 @@ Do not paste secret values into chat or commit either environment file. Set them
 | `SMTP_HOST`                    | Optional SMTP override; defaults to `smtp.gmail.com`                                                  |
 | `SMTP_PORT`                    | Optional SMTP override; defaults to `465`                                                             |
 | `SMTP_SECURE`                  | Optional SMTP TLS override; defaults to `true`                                                        |
+| `GLITCHTIP_DSN`                | Optional monitoring DSN; keep empty until a GlitchTip/Sentry-compatible endpoint is configured       |
 
 ### Frontend: `apps/web/.env.local`
 
@@ -70,7 +74,7 @@ Razorpay's public checkout key is returned by the authenticated checkout API; no
 
 The API accepts Clerk session tokens, while the webhook synchronizes user identity, email, and public-metadata role into PostgreSQL. The free deployment uses `DEFAULT_ORGANIZATION_ID=org_demo` as one tenant. Keep organization-to-tenant mapping aligned before enabling multiple organizations.
 
-The production sign-in page includes four public sandbox accounts (admin, dispatcher, driver, and customer) for demonstrations. The preserved owner account is not a sandbox account. The Render migration removes the legacy `@routepulse.demo` users and `RP-DEMO*` records once, preserving the organization and owner account.
+The production sign-in page includes four public sandbox accounts (admin, dispatcher, driver, and customer) for demonstrations. When `DEMO_AUTH_ENABLED=true`, those accounts use the isolated seeded showcase workspace and do not require Clerk MFA. The preserved owner account is not a sandbox account. The Render migration removes the legacy `@routepulse.demo` users and `RP-DEMO*` records once, preserving the organization and owner account. Set `DEMO_AUTH_ENABLED=false` on a real production tenant; that disables the sandbox and prevents seeded showcase fixtures from loading.
 
 ## Razorpay
 
@@ -102,4 +106,10 @@ The checked-in `render.yaml` creates one free web service configured for Clerk a
 
 After the web frontend is deployed, set `WEB_ORIGIN` on Render to its exact HTTPS origin and set `VITE_API_URL` on Vercel to the Render API URL. Set `VITE_CLERK_PUBLISHABLE_KEY` and switch the backend to `AUTH_MODE=clerk` only when Clerk is configured. The public sandbox credentials use the dedicated `/api/auth/demo` flow even in Clerk mode; set `DEMO_AUTH_ENABLED=false` to disable that sandbox. Add `VITE_MAP_STYLE` only if using a custom map style. Configure webhook URLs only after the Render API has a public HTTPS URL.
 
-For a durable hosted deployment, add managed `DATABASE_URL`, run the migration and seed commands against the hosted database, and keep `QUEUE_MODE=inline` on a web-only service. To enable BullMQ, add managed `REDIS_URL`, set `QUEUE_MODE=bullmq`, and run `apps/api/dist/workers/notificationWorker.js` on a paid worker or another always-on worker host. Do not point RoutePulse at another application's database or Redis instance. The sandbox login is intentionally separate from Clerk and should only expose non-production demo data and permissions.
+For a durable hosted deployment, add managed `DATABASE_URL`, run the migration command against the hosted database, and verify `GET /health/ready` returns `200`. Keep `DEMO_AUTH_ENABLED=true` only on the showcase/staging service. For real production, set it to `false`, use a separate database, and set `STRICT_CONFIG=true` after the first successful readiness check.
+
+To enable durable notifications, add managed `REDIS_URL`, set `QUEUE_MODE=bullmq` on the API service, and deploy `render.worker.yaml` as a separate always-on worker. The worker needs the same Redis and Gmail SMTP values. A free Render web-only service must remain on `QUEUE_MODE=inline`; do not claim queued delivery until the worker is running.
+
+The API exposes `POST /api/drivers/:id/location` as a retryable HTTP fallback for mobile clients, while Socket.IO location updates remain the low-latency path. Both persist driver coordinates and generate geofence events. Customer accounts can reschedule, cancel eligible deliveries, request returns after delivery, and receive return decisions from dispatch/admin.
+
+Do not point RoutePulse at another application's database or Redis instance. Take provider-level database backups, configure Uptime Kuma against `/health` and `/health/ready`, and add a GlitchTip-compatible DSN only after the monitoring project exists.

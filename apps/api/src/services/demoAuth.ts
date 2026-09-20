@@ -39,8 +39,14 @@ export const demoCredentials: DemoCredential[] = [
 
 export function demoUserForRole(role: Role, email?: string, name?: string): User {
   const credential = demoCredentials.find((candidate) => candidate.role === role);
+  const fixtureIds: Record<Role, string> = {
+    admin: "u_admin",
+    dispatcher: "u_dispatch",
+    driver: "u_driver1",
+    customer: "u_customer",
+  };
   return {
-    id: `demo_${role}`,
+    id: fixtureIds[role],
     organizationId: "org_demo",
     email: email || credential?.email || `demo.${role}@routepulse.demo`,
     name: name || credential?.name || `RoutePulse Demo ${role}`,
@@ -54,4 +60,3 @@ export function demoUserFromCredentials(email: string, password: string): User |
   );
   return credential ? demoUserForRole(credential.role, credential.email, credential.name) : null;
 }
-

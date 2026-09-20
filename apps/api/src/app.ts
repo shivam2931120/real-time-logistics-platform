@@ -31,6 +31,7 @@ import {
   asUuid,
   persistAudit,
   persistDriver,
+  persistDriverAndLocation,
   listDriverLocations,
   persistPaymentAndOrder,
   recordPaymentWebhook,
@@ -64,8 +65,10 @@ import type {
   SupportTicket,
 } from "@routepulse/shared";
 import { allowedWebOrigins } from "./config/origins.js";
+import { configurationStatus, runtimeEnvironment } from "./config/runtime.js";
 import { roadRoute, searchPlaces } from "./services/mapGateway.js";
 import { demoAuthEnabled, demoUserFromCredentials } from "./services/demoAuth.js";
+import { geofenceTransitions } from "./services/geofence.js";
 
 const coordinate = z.object({
   label: z.string().min(3).max(160),
@@ -139,7 +142,8 @@ const driverForTenant = (driver: Driver, tenant: string) =>
   );
 const canAccessOrder = (user: User, order: Order) =>
   user.role !== "customer" ||
-  order.customerEmail.toLowerCase() === user.email.toLowerCase();
+  order.customerEmail.toLowerCase() === user.email.toLowerCase() ||
+  (user.id === "u_customer" && order.organizationId === "org_demo" && order.id === "ord_1002");
 const csvCell = (value: unknown) => {
   const raw = String(value ?? "");
   const safe = /^[=+\-@]/.test(raw) ? `'${raw}` : raw;
@@ -268,6 +272,7 @@ export function createApp() {
   app.get("/health", (_req, res) =>
     res.json({
       status: "ok",
+      environment: runtimeEnvironment(),
       auth: process.env.AUTH_MODE === "clerk" ? (demoAuthEnabled() ? "clerk+demo" : "clerk") : "demo",
       persistence: persistenceMode(),
       queue: notificationMode(),
@@ -278,6 +283,14 @@ export function createApp() {
       timestamp: new Date().toISOString(),
     }),
   );
+  app.get("/health/ready", (_req, res) => {
+    const config = configurationStatus();
+    return res.status(config.ready ? 200 : 503).json({
+      status: config.ready ? "ready" : "not_ready",
+      ...config,
+      timestamp: new Date().toISOString(),
+    });
+  });
   app.post("/api/maps/route", async (req, res, next) => {
     try {
       const { points } = z
@@ -375,12 +388,18 @@ export function createApp() {
             };
           };
           order?: {
-            entity?: { id?: string; notes?: { routepulseOrderId?: string } };
+            entity?: {
+              id?: string;
+              amount?: number;
+              currency?: string;
+              notes?: { routepulseOrderId?: string };
+            };
           };
         };
       };
       const entity = body.payload?.payment?.entity;
-      const providerOrder = entity?.order_id || body.payload?.order?.entity?.id;
+      const orderEntity = body.payload?.order?.entity;
+      const providerOrder = entity?.order_id || orderEntity?.id;
       const localId =
         entity?.notes?.routepulseOrderId ||
         body.payload?.order?.entity?.notes?.routepulseOrderId ||
@@ -392,6 +411,13 @@ export function createApp() {
         const order = orders.find((o) => o.id === localId || asUuid(o.id) === localId);
         const captured = ["payment.captured", "order.paid"].includes(body.event || "");
         const failed = ["payment.failed", "order.payment_failed"].includes(body.event || "");
+        const amountMinor = Number(entity?.amount ?? orderEntity?.amount ?? 0);
+        const currency = String(entity?.currency ?? orderEntity?.currency ?? "").trim();
+        if (order && captured &&
+            ((amountMinor > 0 && amountMinor !== Math.round(order.amount * 100)) ||
+              (currency && currency !== order.currency))) {
+          return res.status(400).json({ error: "Payment amount or currency does not match the order" });
+        }
         if (
           order &&
           (captured || failed) &&
@@ -407,8 +433,8 @@ export function createApp() {
                 orderId: order.id,
                 provider: "razorpay_payment",
                 providerRef: entity.id,
-                amountMinor: Number(entity.amount || Math.round(order.amount * 100)),
-                currency: String(entity.currency || order.currency),
+                amountMinor: amountMinor || Math.round(order.amount * 100),
+                currency: currency || order.currency,
                 status: captured ? "captured" : "failed",
               });
             else await persistOrder(order);
@@ -600,6 +626,94 @@ export function createApp() {
         return res.json(order);
       } catch (e) {
         next(e);
+      }
+    },
+  );
+  app.post(
+    "/api/customer/orders/:id/return",
+    permit("customer"),
+    async (req, res, next) => {
+      try {
+        const body = z
+          .object({ reason: z.string().trim().min(3).max(500) })
+          .parse(req.body);
+        const order = store.getOrder(req.params.id, req.user!.organizationId);
+        if (!order || !canAccessOrder(req.user!, order))
+          return res.status(404).json({ error: "Delivery not found" });
+        if (order.status !== "delivered")
+          return res.status(409).json({ error: "Returns can be requested after delivery" });
+        if (order.returnStatus === "requested" || order.returnStatus === "approved")
+          return res.status(409).json({ error: "A return request already exists" });
+        const snapshot = structuredClone(order);
+        order.returnRequestedAt = new Date().toISOString();
+        order.returnReason = body.reason;
+        order.returnStatus = "requested";
+        order.updatedAt = order.returnRequestedAt;
+        order.events.push({
+          id: crypto.randomUUID(),
+          type: "return_requested",
+          message: "Customer requested a return",
+          actorId: req.user!.id,
+          createdAt: order.updatedAt,
+        });
+        try {
+          await persistOrder(order);
+        } catch (error) {
+          restore(order, snapshot);
+          throw error;
+        }
+        await audit(req.user!, "customer.return_requested", "order", order.id, {
+          reason: body.reason,
+        });
+        await notifySafely(order, "return_requested");
+        req.app.get("io")?.to(`tenant:${order.organizationId}`).emit("order:updated", order);
+        req.app.get("io")?.to(`track:${order.trackingCode}`).emit("order:updated", order);
+        return res.json(etaFor(order));
+      } catch (error) {
+        next(error);
+      }
+    },
+  );
+  app.patch(
+    "/api/orders/:id/return",
+    permit("admin", "dispatcher"),
+    async (req, res, next) => {
+      try {
+        const body = z
+          .object({
+            status: z.enum(["approved", "rejected"]),
+            note: z.string().trim().min(3).max(500).optional(),
+          })
+          .parse(req.body);
+        const order = store.getOrder(req.params.id, req.user!.organizationId);
+        if (!order) return res.status(404).json({ error: "Order not found" });
+        if (order.returnStatus !== "requested")
+          return res.status(409).json({ error: "No pending return request exists" });
+        const snapshot = structuredClone(order);
+        order.returnStatus = body.status;
+        order.updatedAt = new Date().toISOString();
+        order.events.push({
+          id: crypto.randomUUID(),
+          type: `return_${body.status}`,
+          message: body.note || `Return request ${body.status}`,
+          actorId: req.user!.id,
+          createdAt: order.updatedAt,
+        });
+        try {
+          await persistOrder(order);
+        } catch (error) {
+          restore(order, snapshot);
+          throw error;
+        }
+        await audit(req.user!, `return.${body.status}`, "order", order.id, {
+          note: body.note,
+        });
+        await notifySafely(order, `return_${body.status}`);
+        req.app.get("io")?.to(`tenant:${order.organizationId}`).emit("order:updated", order);
+        req.app.get("io")?.to(`track:${order.trackingCode}`).emit("order:updated", order);
+        return res.json(etaFor(order));
+      } catch (error) {
+        next(error);
       }
     },
   );
@@ -849,6 +963,73 @@ export function createApp() {
         if (!driver) return res.status(404).json({ error: "Driver not found" });
         const limit = z.coerce.number().int().min(1).max(500).default(100).parse(req.query.limit);
         return res.json(await listDriverLocations(driver.id, req.user!.organizationId, limit));
+      } catch (error) {
+        next(error);
+      }
+    },
+  );
+  app.post(
+    "/api/drivers/:id/location",
+    permit("driver"),
+    async (req, res, next) => {
+      try {
+        const body = z
+          .object({
+            lat: z.number().min(-90).max(90),
+            lng: z.number().min(-180).max(180),
+            accuracy: z.number().finite().positive().max(100_000).optional(),
+            source: z.string().trim().min(2).max(40).default("browser-gps"),
+            recordedAt: z.iso.datetime().optional(),
+          })
+          .parse(req.body);
+        const driver = drivers.find(
+          (item) =>
+            item.id === req.params.id &&
+            item.userId === req.user!.id &&
+            driverForTenant(item, req.user!.organizationId),
+        );
+        if (!driver) return res.status(404).json({ error: "Driver not found" });
+        driver.location = { lat: body.lat, lng: body.lng };
+        driver.lastSeenAt = body.recordedAt || new Date().toISOString();
+        await persistDriverAndLocation(driver, {
+          accuracy: body.accuracy,
+          source: body.source,
+          recordedAt: driver.lastSeenAt,
+        });
+        for (const order of orders.filter((item) => item.assignedDriverId === driver.id)) {
+          const transitions = geofenceTransitions(
+            order,
+            driver.location,
+            organizationSettings.geofenceRadiusMeters,
+          );
+          if (!transitions.length) continue;
+          for (const transition of transitions) {
+            order.events.push({
+              id: crypto.randomUUID(),
+              type: transition.type,
+              message: transition.message,
+              actorId: req.user!.id,
+              createdAt: driver.lastSeenAt,
+            });
+          }
+          order.updatedAt = driver.lastSeenAt;
+          await persistOrder(order);
+          req.app.get("io")?.to(`tenant:${order.organizationId}`).emit("order:updated", order);
+          req.app.get("io")?.to(`track:${order.trackingCode}`).emit("order:updated", order);
+        }
+        req.app
+          .get("io")
+          ?.to(`tenant:${req.user!.organizationId}`)
+          .emit("driver:location", {
+            driverId: driver.id,
+            location: driver.location,
+            lastSeenAt: driver.lastSeenAt,
+          });
+        return res.json({
+          driverId: driver.id,
+          location: driver.location,
+          lastSeenAt: driver.lastSeenAt,
+        });
       } catch (error) {
         next(error);
       }

@@ -24,6 +24,11 @@ describe("API", () => {
       orders.length,
       ...orders.filter((o) => o.id.startsWith("ord_1") || o.id === "ord_0999"),
     );
+    orders.forEach((order) => {
+      delete order.returnRequestedAt;
+      delete order.returnReason;
+      delete order.returnStatus;
+    });
     drivers.find((d) => d.id === "d_rohan")!.status = "available";
     drivers.find((d) => d.id === "d_meera")!.status = "busy";
     deliveryExceptions.splice(0);
@@ -182,6 +187,21 @@ describe("API", () => {
     );
     expect(response.body.estimatedArrivalAt).toEqual(expect.any(String));
     expect(response.body.lateRisk).toEqual(expect.any(Boolean));
+  });
+  it("accepts the retryable HTTP driver location fallback", async () => {
+    const driverToken = await token("driver");
+    const response = await request(app)
+      .post("/api/drivers/d_rohan/location")
+      .set("authorization", `Bearer ${driverToken}`)
+      .send({ lat: 12.9717, lng: 77.5947, accuracy: 12, source: "test-gps" });
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual(
+      expect.objectContaining({
+        driverId: "d_rohan",
+        location: { lat: 12.9717, lng: 77.5947 },
+        lastSeenAt: expect.any(String),
+      }),
+    );
   });
   it("supports the driver accept, reject, and PIN-protected proof workflow", async () => {
     const dispatcher = await token("dispatcher");
@@ -351,6 +371,29 @@ describe("API", () => {
       .send({});
     expect(cancelled.status).toBe(200);
     expect(cancelled.body.status).toBe("cancelled");
+  });
+  it("supports customer return requests and dispatch decisions", async () => {
+    const customer = await token("customer");
+    const delivered = orders.find((order) => order.id === "ord_0999")!;
+    const originalEmail = delivered.customerEmail;
+    try {
+      delivered.customerEmail = "customer@routepulse.demo";
+      const requestReturn = await request(app)
+        .post(`/api/customer/orders/${delivered.id}/return`)
+        .set("authorization", `Bearer ${customer}`)
+        .send({ reason: "Package arrived damaged" });
+      expect(requestReturn.status).toBe(200);
+      expect(requestReturn.body.returnStatus).toBe("requested");
+      const dispatcher = await token("dispatcher");
+      const decision = await request(app)
+        .patch(`/api/orders/${delivered.id}/return`)
+        .set("authorization", `Bearer ${dispatcher}`)
+        .send({ status: "approved", note: "Return pickup scheduled" });
+      expect(decision.status).toBe(200);
+      expect(decision.body.returnStatus).toBe("approved");
+    } finally {
+      delivered.customerEmail = originalEmail;
+    }
   });
   it("records idempotent parcel scans and validates the parcel code", async () => {
     const dispatcher = await token("dispatcher");

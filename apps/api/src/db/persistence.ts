@@ -50,6 +50,8 @@ const iso = (value: Date | string) =>
 
 export async function initializePersistence() {
   if (!dbEnabled || !pool) return;
+  const preserveShowcaseFixtures =
+    process.env.AUTH_MODE === "clerk" && process.env.DEMO_AUTH_ENABLED === "true";
   const userRows = await pool.query(
     `SELECT id::text,organization_id::text,email,name,role FROM users WHERE organization_id=$1`,
     [demoOrganizationUuid],
@@ -72,7 +74,7 @@ export async function initializePersistence() {
     [demoOrganizationUuid],
   );
   const orderRows = await pool.query(
-    `SELECT id::text,organization_id::text,tracking_code,customer_name,customer_email,pickup,dropoff,package_weight_kg,priority,status,amount_minor,currency,payment_status,assigned_driver_id::text,delivery_window_start,delivery_notes,delivery_pin_hash,parcel_code,reschedule_count,cancelled_at,promised_at,delivered_at,created_at,updated_at FROM orders WHERE organization_id=$1 ORDER BY created_at DESC`,
+    `SELECT id::text,organization_id::text,tracking_code,customer_name,customer_email,pickup,dropoff,package_weight_kg,priority,status,amount_minor,currency,payment_status,assigned_driver_id::text,delivery_window_start,delivery_notes,delivery_pin_hash,parcel_code,reschedule_count,cancelled_at,return_requested_at,return_reason,return_status,promised_at,delivered_at,created_at,updated_at FROM orders WHERE organization_id=$1 ORDER BY created_at DESC`,
     [demoOrganizationUuid],
   );
   const eventRows = await pool.query(
@@ -111,10 +113,7 @@ export async function initializePersistence() {
     `SELECT id::text,ticket_id::text,sender_id::text,sender_role,message,internal,created_at FROM support_messages WHERE organization_id=$1 ORDER BY created_at`,
     [demoOrganizationUuid],
   );
-  drivers.splice(
-    0,
-    drivers.length,
-    ...(driverRows.rows.map((row) => ({
+  const loadedDrivers = driverRows.rows.map((row) => ({
       id: localId(row.id, drivers),
       userId: localId(row.user_id, users),
       name:
@@ -131,8 +130,10 @@ export async function initializePersistence() {
         ? iso(row.maintenance_due_at)
         : undefined,
       maintenanceStatus: row.maintenance_status || "ok",
-    })) as Driver[]),
-  );
+    })) as Driver[];
+  if (!preserveShowcaseFixtures || loadedDrivers.length) {
+    drivers.splice(0, drivers.length, ...loadedDrivers);
+  }
   const loadedOrders = orderRows.rows.map((row) => {
     const proof = proofRows.rows.find((item) => item.order_id === row.id);
     const orderId = localId(row.id, orders);
@@ -162,6 +163,9 @@ export async function initializePersistence() {
       parcelCode: row.parcel_code || undefined,
       rescheduleCount: Number(row.reschedule_count || 0),
       cancelledAt: row.cancelled_at ? iso(row.cancelled_at) : undefined,
+      returnRequestedAt: row.return_requested_at ? iso(row.return_requested_at) : undefined,
+      returnReason: row.return_reason || undefined,
+      returnStatus: row.return_status || undefined,
       promisedAt: iso(row.promised_at),
       createdAt: iso(row.created_at),
       updatedAt: iso(row.updated_at),
@@ -185,7 +189,9 @@ export async function initializePersistence() {
         })),
     } as Order;
   });
-  orders.splice(0, orders.length, ...loadedOrders);
+  if (!preserveShowcaseFixtures || loadedOrders.length) {
+    orders.splice(0, orders.length, ...loadedOrders);
+  }
   deliveryExceptions.splice(
     0,
     deliveryExceptions.length,
@@ -305,7 +311,7 @@ export async function initializePersistence() {
 async function writeOrder(order: Order, db: Pick<PoolClient, "query">) {
   const orgId = organizationUuid(order.organizationId);
   await db.query(
-    `INSERT INTO orders(id,organization_id,tracking_code,customer_name,customer_email,pickup,dropoff,package_weight_kg,priority,status,amount_minor,currency,payment_status,assigned_driver_id,delivery_window_start,delivery_notes,delivery_pin_hash,parcel_code,reschedule_count,cancelled_at,promised_at,delivered_at,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,$8,$9,$10::order_status,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24) ON CONFLICT(id) DO UPDATE SET customer_name=EXCLUDED.customer_name,customer_email=EXCLUDED.customer_email,pickup=EXCLUDED.pickup,dropoff=EXCLUDED.dropoff,package_weight_kg=EXCLUDED.package_weight_kg,priority=EXCLUDED.priority,status=EXCLUDED.status,amount_minor=EXCLUDED.amount_minor,currency=EXCLUDED.currency,payment_status=EXCLUDED.payment_status,assigned_driver_id=EXCLUDED.assigned_driver_id,delivery_window_start=EXCLUDED.delivery_window_start,delivery_notes=EXCLUDED.delivery_notes,delivery_pin_hash=COALESCE(EXCLUDED.delivery_pin_hash,orders.delivery_pin_hash),parcel_code=COALESCE(EXCLUDED.parcel_code,orders.parcel_code),reschedule_count=EXCLUDED.reschedule_count,cancelled_at=EXCLUDED.cancelled_at,promised_at=EXCLUDED.promised_at,delivered_at=EXCLUDED.delivered_at,updated_at=EXCLUDED.updated_at`,
+    `INSERT INTO orders(id,organization_id,tracking_code,customer_name,customer_email,pickup,dropoff,package_weight_kg,priority,status,amount_minor,currency,payment_status,assigned_driver_id,delivery_window_start,delivery_notes,delivery_pin_hash,parcel_code,reschedule_count,cancelled_at,return_requested_at,return_reason,return_status,promised_at,delivered_at,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,$8,$9,$10::order_status,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27) ON CONFLICT(id) DO UPDATE SET customer_name=EXCLUDED.customer_name,customer_email=EXCLUDED.customer_email,pickup=EXCLUDED.pickup,dropoff=EXCLUDED.dropoff,package_weight_kg=EXCLUDED.package_weight_kg,priority=EXCLUDED.priority,status=EXCLUDED.status,amount_minor=EXCLUDED.amount_minor,currency=EXCLUDED.currency,payment_status=EXCLUDED.payment_status,assigned_driver_id=EXCLUDED.assigned_driver_id,delivery_window_start=EXCLUDED.delivery_window_start,delivery_notes=EXCLUDED.delivery_notes,delivery_pin_hash=COALESCE(EXCLUDED.delivery_pin_hash,orders.delivery_pin_hash),parcel_code=COALESCE(EXCLUDED.parcel_code,orders.parcel_code),reschedule_count=EXCLUDED.reschedule_count,cancelled_at=EXCLUDED.cancelled_at,return_requested_at=EXCLUDED.return_requested_at,return_reason=EXCLUDED.return_reason,return_status=EXCLUDED.return_status,promised_at=EXCLUDED.promised_at,delivered_at=EXCLUDED.delivered_at,updated_at=EXCLUDED.updated_at`,
     [
       asUuid(order.id),
       orgId,
@@ -327,6 +333,9 @@ async function writeOrder(order: Order, db: Pick<PoolClient, "query">) {
       order.parcelCode || null,
       order.rescheduleCount || 0,
       order.cancelledAt || null,
+      order.returnRequestedAt || null,
+      order.returnReason || null,
+      order.returnStatus || null,
       order.promisedAt,
       order.deliveredAt || null,
       order.createdAt,
@@ -380,14 +389,14 @@ export async function persistOrder(order: Order) {
   await writeOrder(order, pool);
 }
 export async function persistDriver(driver: Driver) {
-  if (!dbEnabled || !pool) return;
+  if (!dbEnabled || !pool || driver.userId.startsWith("demo_")) return;
   await writeDriver(driver, pool);
 }
 export async function persistDriverLocation(
   driver: Driver,
   reading: { accuracy?: number; source?: string; recordedAt?: string } = {},
 ) {
-  if (!dbEnabled || !pool) return;
+  if (!dbEnabled || !pool || driver.userId.startsWith("demo_")) return;
   await pool.query(
     `INSERT INTO driver_location_events(id,organization_id,driver_id,latitude,longitude,accuracy_meters,source,recorded_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,
     [
@@ -404,6 +413,39 @@ export async function persistDriverLocation(
       reading.recordedAt || driver.lastSeenAt,
     ],
   );
+}
+export async function persistDriverAndLocation(
+  driver: Driver,
+  reading: { accuracy?: number; source?: string; recordedAt?: string } = {},
+) {
+  if (!dbEnabled || !pool || driver.userId.startsWith("demo_")) return;
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await writeDriver(driver, client);
+    await client.query(
+      `INSERT INTO driver_location_events(id,organization_id,driver_id,latitude,longitude,accuracy_meters,source,recorded_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,
+      [
+        crypto.randomUUID(),
+        organizationUuid(
+          users.find((user) => user.id === driver.userId)?.organizationId ||
+            demoOrganizationId,
+        ),
+        asUuid(driver.id),
+        driver.location.lat,
+        driver.location.lng,
+        reading.accuracy ?? null,
+        reading.source || "gps",
+        reading.recordedAt || driver.lastSeenAt,
+      ],
+    );
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 export async function listDriverLocations(
   driverId: string,

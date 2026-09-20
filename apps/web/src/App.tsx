@@ -1174,7 +1174,7 @@ function OrderDrawer({
   const [selfService, setSelfService] = useState(false);
   const [selfServiceError, setSelfServiceError] = useState("");
   const [copyMessage, setCopyMessage] = useState("");
-  const [actionBusy, setActionBusy] = useState<"cancel" | "reschedule" | "payment" | "">("");
+  const [actionBusy, setActionBusy] = useState<"cancel" | "reschedule" | "payment" | "return" | "">("");
   const [paymentError, setPaymentError] = useState("");
   return (
     <div className="drawer-backdrop" onClick={close}>
@@ -1371,6 +1371,36 @@ function OrderDrawer({
             </button>
             {selfServiceError && <p className="error">{selfServiceError}</p>}
           </form>
+        )}
+        {customerActions && order.status === "delivered" && (
+          <div className="self-service-actions">
+            {order.returnStatus ? (
+              <p className="inline-notice" role="status">
+                Return request: {order.returnStatus}
+              </p>
+            ) : (
+              <button
+                className="button ghost"
+                disabled={Boolean(actionBusy)}
+                onClick={async () => {
+                  const reason = window.prompt("Why would you like to return this delivery?");
+                  if (!reason?.trim()) return;
+                  setActionBusy("return");
+                  setSelfServiceError("");
+                  try {
+                    await api.requestReturn(order.id, reason.trim());
+                    await reload();
+                  } catch (error) {
+                    setSelfServiceError(error instanceof Error ? error.message : "Unable to request return");
+                  } finally {
+                    setActionBusy("");
+                  }
+                }}
+              >
+                {actionBusy === "return" ? "Requesting…" : "Request a return"}
+              </button>
+            )}
+          </div>
         )}
         {order.paymentStatus !== "paid" && (
           <button

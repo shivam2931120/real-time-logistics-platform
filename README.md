@@ -16,7 +16,7 @@ A complete, runnable real-time last-mile logistics control tower with dispatcher
 - BullMQ/Redis notification queue with safe simulated fallback
 - Razorpay Checkout adapter, server-side verification, and signed webhook route
 - Selectable 7/30/90-day analytics with SLA, completion, payment, route-distance, geofence dwell, priority, driver and zone performance
-- Customer self-service rescheduling/cancellation with notifications and audit history
+- Customer self-service rescheduling/cancellation/return requests with notifications and audit history
 - Chain-of-custody parcel scanning (pickup, hub, delivery) with manual and camera-ready workflows
 - CSV exports for delivery detail and operational summary reports
 - Support and communication center with ticket priorities, status workflow, internal-safe messaging, and live updates
@@ -36,7 +36,7 @@ npm install
 npm run dev
 ```
 
-Open `http://localhost:5173`. Choose a role on the demo login screen. The API is at `http://localhost:4000`; `GET /health` reports which adapters are active.
+Open `http://localhost:5173`. Choose a role on the demo login screen. The API is at `http://localhost:4000`; `GET /health` reports active adapters and `GET /health/ready` reports configuration readiness.
 
 With a local `apps/api/.env` and Docker services, orders, drivers, and order events are loaded from PostgreSQL and mutation writes are persisted. Environment files are intentionally ignored by Git. If `DATABASE_URL` is omitted, the API falls back to memory for lightweight UI work. Notification delivery is simulated unless a provider is configured, and demo payment confirmation is not financial settlement.
 
@@ -50,10 +50,10 @@ npm run db:migrate -w @routepulse/api
 npm run db:seed -w @routepulse/api
 ```
 
-Setting `REDIS_URL` enables BullMQ queue insertion. Start the worker separately with:
+Setting `REDIS_URL` and `QUEUE_MODE=bullmq` enables BullMQ queue insertion. Start the worker separately with:
 
 ```bash
-npx tsx apps/api/src/workers/notificationWorker.ts
+npm run start:worker -w @routepulse/api
 ```
 
 The PostgreSQL design and repeatable local migration are in `docs/schema.sql` and `apps/api/src/db/migrate.ts`. Run `npm run db:migrate -w @routepulse/api` and `npm run db:seed -w @routepulse/api` after creating a fresh database.
@@ -79,8 +79,8 @@ The first command runs TypeScript checks, API/web tests, and production builds. 
 4. Return as Dispatcher to see the updated status and analytics.
 5. Open an unpaid delivery and complete Razorpay checkout (or demo confirmation when unconfigured).
 6. Share `/track/<tracking-code>` with a customer; no login is required.
-7. As a customer, open a delivery to reschedule/cancel when eligible, or use **Contact support**. Operations users can export CSV reports, scan parcels, and manage support tickets from the sidebar.
+7. As a customer, open a delivery to reschedule/cancel when eligible, request a return after delivery, or use **Contact support**. Operations users can export CSV reports, scan parcels, and manage support tickets from the sidebar.
 
 ## Honest production boundary
 
-The application has a working PostgreSQL persistence layer and repeatable migrations, plus configurable Clerk, Razorpay, BullMQ, and SMTP adapters. A high-scale launch still requires a Redis Socket.IO adapter for multiple API instances, a transactional outbox, a managed map/routing SLA, monitoring, backups, privacy retention jobs, load testing, and native/background driver tracking. Proof is intentionally text/PIN based; image uploads are out of scope.
+The application has a working PostgreSQL persistence layer and repeatable migrations, plus configurable Clerk, Razorpay, BullMQ, SMTP, durable driver-location, and readiness adapters. A high-scale launch still requires a Redis Socket.IO adapter for multiple API instances, a transactional outbox, a managed map/routing SLA, monitoring, backups, privacy retention jobs, load testing, and native/background driver tracking. Proof is intentionally text/PIN based; image uploads are out of scope.

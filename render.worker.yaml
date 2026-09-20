@@ -1,0 +1,26 @@
+# Optional paid Render worker for durable notification delivery.
+# Keep the web service on QUEUE_MODE=inline until this worker is deployed.
+services:
+  - type: worker
+    name: routepulse-notification-worker
+    runtime: node
+    plan: starter
+    buildCommand: npm ci --include=dev && npm run build -w @routepulse/shared && npm run build -w @routepulse/api
+    startCommand: npm run start:worker -w @routepulse/api
+    envVars:
+      - key: NODE_VERSION
+        value: 22
+      - key: REDIS_URL
+        sync: false
+      - key: GOOGLE_SMTP_USER
+        sync: false
+      - key: GOOGLE_SMTP_APP_PASSWORD
+        sync: false
+      - key: SMTP_HOST
+        value: smtp.gmail.com
+      - key: SMTP_PORT
+        value: 465
+      - key: SMTP_SECURE
+        value: "true"
+      - key: EMAIL_FROM
+        sync: false

@@ -5,12 +5,18 @@ services:
     plan: free
     buildCommand: npm ci --include=dev && npm run build -w @routepulse/shared && npm run build -w @routepulse/api && node apps/api/dist/db/migrate.js
     startCommand: npm run start -w @routepulse/api
-    healthCheckPath: /health
+    healthCheckPath: /health/ready
     envVars:
       - key: NODE_VERSION
         value: 22
+      - key: APP_ENV
+        value: production
+      - key: STRICT_CONFIG
+        value: "false"
       - key: AUTH_MODE
         value: clerk
+      - key: DEMO_AUTH_ENABLED
+        value: "true"
       - key: QUEUE_MODE
         value: inline
       - key: JWT_SECRET
@@ -36,4 +42,6 @@ services:
       - key: GOOGLE_SMTP_USER
         sync: false
       - key: GOOGLE_SMTP_APP_PASSWORD
+        sync: false
+      - key: GLITCHTIP_DSN
         sync: false

@@ -73,6 +73,9 @@ export interface Order {
   parcelCode?: string;
   rescheduleCount?: number;
   cancelledAt?: string;
+  returnRequestedAt?: string;
+  returnReason?: string;
+  returnStatus?: "requested" | "approved" | "rejected";
   proof?: DeliveryProof;
   createdAt: string;
   updatedAt: string;
