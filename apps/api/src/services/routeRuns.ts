@@ -79,7 +79,7 @@ export async function createRouteRun(input: {
       `INSERT INTO route_runs(id,organization_id,driver_id,order_ids,stops,distance_km,duration_minutes,status,version,created_by,created_at,updated_at)
        VALUES($1,$2,$3,$4::jsonb,$5::jsonb,$6,$7,$8,$9,$10,$11,$11)`,
       [
-        asUuid(run.id),
+        run.id,
         organizationUuid(run.organizationId),
         asUuid(run.driverId),
         JSON.stringify(run.orderIds.map(asUuid)),
@@ -153,7 +153,7 @@ export async function updateRouteRunStatus(
   if (pool) {
     await pool.query(
       `UPDATE route_runs SET status=$1,version=$2,updated_at=$3,published_at=$4,completed_at=$5 WHERE id=$6 AND organization_id=$7`,
-      [status, run.version, now, run.publishedAt || null, run.completedAt || null, asUuid(run.id), organizationUuid(run.organizationId)],
+      [status, run.version, now, run.publishedAt || null, run.completedAt || null, run.id, organizationUuid(run.organizationId)],
     );
   }
   return run;

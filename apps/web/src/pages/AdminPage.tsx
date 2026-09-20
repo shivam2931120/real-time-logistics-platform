@@ -6,6 +6,7 @@ import type {
   IntegrationApiKeySummary,
   IntegrationWebhookSummary,
   OrganizationSettings,
+  PaymentReconciliationSummary,
   Role,
   User,
 } from "@routepulse/shared";
@@ -17,6 +18,7 @@ export function AdminPage() {
   const [settings, setSettings] = useState<OrganizationSettings | null>(null);
   const [tab, setTab] = useState<"team" | "settings" | "audit" | "integrations">("team");
   const [billing, setBilling] = useState<BillingSummary | null>(null);
+  const [reconciliation, setReconciliation] = useState<PaymentReconciliationSummary | null>(null);
   const [apiKeys, setApiKeys] = useState<IntegrationApiKeySummary[]>([]);
   const [webhooks, setWebhooks] = useState<IntegrationWebhookSummary[]>([]);
   const [keyName, setKeyName] = useState("Operations API");
@@ -30,11 +32,12 @@ export function AdminPage() {
     setLoading(true);
     setError("");
     try {
-      const [team, records, configuration, billingSummary, keys, hooks] = await Promise.all([
+      const [team, records, configuration, billingSummary, paymentReconciliation, keys, hooks] = await Promise.all([
         api.adminUsers(),
         api.audit(),
         api.settings(),
         api.billingSummary(),
+        api.paymentReconciliation(),
         api.integrationApiKeys(),
         api.integrationWebhooks(),
       ]);
@@ -42,6 +45,7 @@ export function AdminPage() {
       setAudit(records);
       setSettings(configuration);
       setBilling(billingSummary);
+      setReconciliation(paymentReconciliation);
       setApiKeys(keys);
       setWebhooks(hooks);
     } catch (reason) {
@@ -334,6 +338,35 @@ export function AdminPage() {
                 <span><strong>₹{billing.capturedPayments.toLocaleString("en-IN")}</strong><small>captured</small></span>
                 <span><strong>₹{billing.outstandingAmount.toLocaleString("en-IN")}</strong><small>outstanding</small></span>
                 <span><strong>{billing.paymentCollectionRate}%</strong><small>collection rate</small></span>
+              </div>
+            )}
+            {reconciliation && (
+              <div className="reconciliation-block">
+                <div className="reconciliation-head">
+                  <div>
+                    <span className="eyebrow">Ledger integrity</span>
+                    <h4>Payment reconciliation · last {reconciliation.windowDays} days</h4>
+                  </div>
+                  <span className={`reconciliation-status ${reconciliation.mismatchCount ? "has-mismatch" : "matched"}`}>
+                    {reconciliation.mismatchCount ? `${reconciliation.mismatchCount} mismatch${reconciliation.mismatchCount === 1 ? "" : "es"}` : "Ledger matched"}
+                  </span>
+                </div>
+                <div className="reconciliation-metrics">
+                  <span><strong>{reconciliation.capturedCount}</strong><small>captured</small></span>
+                  <span><strong>{reconciliation.outstandingCount}</strong><small>outstanding</small></span>
+                  <span><strong>{reconciliation.failedCount}</strong><small>failed</small></span>
+                  <span><strong>{reconciliation.missingRecordCount}</strong><small>missing provider records</small></span>
+                </div>
+                {(reconciliation.mismatchCount > 0 || reconciliation.missingRecordCount > 0) && (
+                  <div className="reconciliation-rows">
+                    {reconciliation.rows.filter((row) => row.status === "mismatch" || row.status === "missing_record").slice(0, 5).map((row) => (
+                      <div className="reconciliation-row" key={row.orderId}>
+                        <span><strong>{row.trackingCode}</strong><small>{row.customerName} · ₹{row.orderAmount.toLocaleString("en-IN")}</small></span>
+                        <span className={`reconciliation-status ${row.status === "mismatch" ? "has-mismatch" : "missing"}`}>{row.status.replace("_", " ")}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </div>

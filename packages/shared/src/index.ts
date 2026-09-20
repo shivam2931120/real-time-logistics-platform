@@ -227,6 +227,44 @@ export interface BillingSummary {
   paymentCollectionRate: number;
   provider: string;
 }
+export type PaymentReconciliationRowStatus =
+  | "matched"
+  | "unpaid"
+  | "missing_record"
+  | "mismatch";
+export interface PaymentReconciliationRow {
+  orderId: string;
+  trackingCode: string;
+  customerName: string;
+  orderAmount: number;
+  currency: string;
+  orderPaymentStatus: PaymentStatus;
+  provider?: string;
+  providerRef?: string;
+  providerStatus?: string;
+  providerAmount?: number;
+  providerCurrency?: string;
+  status: PaymentReconciliationRowStatus;
+  createdAt: string;
+  paymentCreatedAt?: string;
+}
+export interface PaymentReconciliationSummary {
+  periodStart: string;
+  periodEnd: string;
+  windowDays: number;
+  currency: string;
+  provider: string;
+  orderCount: number;
+  capturedCount: number;
+  capturedAmount: number;
+  outstandingCount: number;
+  outstandingAmount: number;
+  failedCount: number;
+  failedAmount: number;
+  missingRecordCount: number;
+  mismatchCount: number;
+  rows: PaymentReconciliationRow[];
+}
 export interface TrackingSnapshot {
   trackingCode: string;
   customerName: string;

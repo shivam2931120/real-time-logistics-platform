@@ -88,6 +88,7 @@ import {
   listRouteRuns,
   updateRouteRunStatus,
 } from "./services/routeRuns.js";
+import { reconcilePayments } from "./services/reconciliation.js";
 
 const coordinate = z.object({
   label: z.string().min(3).max(160),
@@ -1889,6 +1890,16 @@ export function createApp() {
         : 0,
       provider: paymentMode(),
     });
+  });
+  app.get("/api/payments/reconciliation", permit("admin", "dispatcher"), async (req, res, next) => {
+    try {
+      const rawDays = Number(req.query.days || 30);
+      if (!Number.isFinite(rawDays) || rawDays < 1 || rawDays > 90)
+        return res.status(400).json({ error: "days must be between 1 and 90" });
+      return res.json(await reconcilePayments(req.user!.organizationId, rawDays));
+    } catch (error) {
+      return next(error);
+    }
   });
   app.get("/api/reports/billing.csv", permit("admin", "dispatcher"), (req, res) => {
     const tenantOrders = store.listOrders(req.user!.organizationId);

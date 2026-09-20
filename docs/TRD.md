@@ -63,6 +63,7 @@ All private endpoints require `Authorization: Bearer <JWT>`. Demo login accepts 
 | POST      | `/api/routes/optimize`                              | dispatcher/admin                 | capacity-, priority-, window- and shift-aware stop ordering with per-stop ETAs |
 | GET/POST  | `/api/route-runs`                                   | operations / assigned driver     | list or save a versioned route draft; driver sees only own runs              |
 | POST/PATCH| `/api/route-runs/:id/publish`, `/api/route-runs/:id/status` | operations/assigned driver | publish validated stops and advance an owned run with version checks         |
+| GET       | `/api/payments/reconciliation?days=30`             | admin/dispatcher            | tenant-scoped order/payment ledger reconciliation with explicit gaps         |
 | GET       | `/api/drivers`                                      | dispatcher/admin                 | tenant fleet state                            |
 | GET       | `/api/drivers/:id/locations?limit=100`              | dispatcher/admin                 | recent persisted GPS history                  |
 | PATCH     | `/api/drivers/:id`                                  | dispatcher/admin                 | update operational status/capacity            |

@@ -3427,6 +3427,57 @@ td {
   color: #77869a;
   font-size: 0.67rem;
 }
+.reconciliation-block {
+  margin: 14px 18px 0;
+  padding-top: 14px;
+  border-top: 1px solid #253142;
+}
+.reconciliation-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.reconciliation-head h4 {
+  margin: 4px 0 0;
+  font-size: 0.85rem;
+}
+.reconciliation-status {
+  flex: none;
+  color: #22c55e;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.reconciliation-status.has-mismatch { color: #fb7185; }
+.reconciliation-status.missing { color: #fbbf24; }
+.reconciliation-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+.reconciliation-metrics span {
+  display: grid;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 1px solid #253142;
+  background: #0d1117;
+}
+.reconciliation-metrics strong { font-size: 0.9rem; }
+.reconciliation-metrics small { color: #77869a; font-size: 0.62rem; }
+.reconciliation-rows { margin-top: 8px; border-top: 1px solid #253142; }
+.reconciliation-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid #253142;
+}
+.reconciliation-row span:first-child { display: grid; gap: 2px; min-width: 0; }
+.reconciliation-row small { color: #77869a; font-size: 0.65rem; }
 .integration-card {
   overflow: hidden;
 }

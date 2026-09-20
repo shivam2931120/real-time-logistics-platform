@@ -129,6 +129,27 @@ describe("API", () => {
       }),
     );
   });
+  it("returns tenant-scoped payment reconciliation with explicit ledger gaps", async () => {
+    const auth = await token("admin");
+    const response = await request(app)
+      .get("/api/payments/reconciliation?days=30")
+      .set("authorization", `Bearer ${auth}`);
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual(
+      expect.objectContaining({
+        windowDays: 30,
+        orderCount: expect.any(Number),
+        capturedAmount: expect.any(Number),
+        mismatchCount: expect.any(Number),
+        rows: expect.any(Array),
+      }),
+    );
+    expect(response.body.rows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ trackingCode: "RP-DEMO01", orderPaymentStatus: "paid" }),
+      ]),
+    );
+  });
   it("returns constraint-aware route ETAs", async () => {
     const auth = await token("dispatcher");
     const response = await request(app)

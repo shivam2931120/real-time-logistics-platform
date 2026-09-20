@@ -12,6 +12,7 @@ import type {
   OrganizationSettings,
   OrganizationSummary,
   BillingSummary,
+  PaymentReconciliationSummary,
   IntegrationApiKeySummary,
   IntegrationWebhookSummary,
   ParcelScan,
@@ -287,6 +288,8 @@ export const api = {
     }),
   audit: () => request<AuditRecord[]>("/api/admin/audit"),
   billingSummary: () => request<BillingSummary>("/api/billing/summary"),
+  paymentReconciliation: (days = 30) =>
+    request<PaymentReconciliationSummary>(`/api/payments/reconciliation?days=${days}`),
   integrationApiKeys: () => request<IntegrationApiKeySummary[]>("/api/admin/integrations/api-keys"),
   createIntegrationApiKey: (name: string) =>
     request<IntegrationApiKeySummary & { key: string }>("/api/admin/integrations/api-keys", {

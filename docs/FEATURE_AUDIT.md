@@ -14,7 +14,7 @@ Reviewed: 8 September 2026. This is a source-level inventory and local verificat
 | Routes                  | Capacity-aware optimization, selected stops, drag reordering, distance/duration estimates, map preview, durable versioned route runs, draft/publish lifecycle, and driver-visible published plans | Traffic-aware routing and multi-depot constraints remain future work. |
 | Driver work             | Assigned deliveries, acceptance, GPS sharing, progress updates, issues, parcel scans, proof/PIN                                                                                             | No durable offline action queue or offline conflict-resolution experience.                                                                                               |
 | Customer service        | Own deliveries, permitted rescheduling/cancellation, tracking links and support                                                                                                             | Saved addresses, preferred delivery instructions and return requests are new work.                                                                                       |
-| Payments                | Razorpay checkout, verification/webhook integration, durable provider references, atomic payment/order writes and webhook deduplication                                                                                                                        | Reconciliation dashboards and refund workflows remain future work. |
+| Payments                | Razorpay checkout, verification/webhook integration, durable provider references, atomic payment/order writes, webhook deduplication and tenant-scoped reconciliation with mismatch/missing-record detection | Refund workflows and provider settlement imports remain future work. |
 | Notifications           | In-app history/read state, SMTP delivery code and BullMQ worker integration                                                                                                                 | Email delivery and background processing depend on configuration and an actually running worker. Do not equate a simulated status with delivered email.                  |
 | Support                 | Tickets, categories/priorities/status, order linking and real-time replies                                                                                                                  | SLA ownership/escalation, canned responses and a visible internal-note workflow remain opportunities.                                                                    |
 | Parcel scanning         | Manual and browser-camera parcel identification; pickup/hub/delivery scan history                                                                                                           | Camera detection depends on browser support and permission. Offline scans and label-printing are new work.                                                               |
@@ -43,17 +43,18 @@ Primary references: `apps/web/src/App.tsx`, `apps/web/src/pages/`, `apps/web/src
 - Lazy-loaded route pages and map/delivery modules so the initial bundle does not include every operational view.
 - Added explicit customer action progress and payment/reschedule/cancellation error feedback.
 
-## Recommended next features (not implemented here)
+## Recommended next features
 
 1. **Route deviation and excessive-dwell alerts.** Persist GPS samples with a retention policy; measure deviation from actual road geometry, apply accuracy/freshness thresholds and hysteresis, and create deduplicated exceptions. Offer acknowledge/snooze/resolve controls.
 2. **Offline driver actions.** Queue scans, status changes and proof metadata locally using stable idempotency keys; show pending/synced/conflict states and retry on reconnection. Do not assume permission to bulk-download map tiles.
+3. **Refund and provider settlement imports.** Import provider settlement reports, match refunds/chargebacks to immutable payment references and expose a review queue before any ledger correction.
 4. **Service territories and address validation.** Store polygon delivery zones, validate destinations against them and flag out-of-area deliveries before dispatch. Provide a list-based editor and accessible confirmation alongside map drawing.
 5. **Customer address book and delivery preferences.** Save verified-by-customer coordinates, landmarks, contact preferences and time-window requests; enforce ownership and audit changes that affect assigned deliveries.
 6. **Operational SLA inbox.** Combine late deliveries, stale GPS, long dwell, maintenance due and unresolved tickets into assigned tasks with due times, escalation policies and audit history.
 7. **Validated bulk import and batch dispatch.** CSV preview, row-level errors, duplicate detection, dry-run capacity checks and downloadable failure reports; submit bounded, idempotent batches.
 8. **Performance comparisons and cost per stop.** Compare equivalent periods and cohorts using event history; separate booked/collected/refunded money, estimated/actual distance and on-time denominator definitions.
 
-Suggested sequence: durable route publishing and payment reconciliation first, then deviation/dwell alerts, then offline driver actions. These can be built with the existing stack; hosted capacity and third-party services may still have costs or usage limits.
+Suggested sequence: durable route publishing and payment reconciliation are complete, so next is deviation/dwell alerts, then offline driver actions. These can be built with the existing stack; hosted capacity and third-party services may still have costs or usage limits.
 
 ## Verification boundary
 
