@@ -12,11 +12,14 @@ import type {
   ParcelScan,
   ParcelScanStage,
   Role,
+  RouteOptimizationConstraints,
+  RoutePlan,
   SupportMessage,
   SupportTicket,
   TrackingSnapshot,
   User,
 } from "@routepulse/shared";
+export type { RouteOptimizationConstraints, RoutePlan } from "@routepulse/shared";
 const base = import.meta.env.VITE_API_URL || "http://127.0.0.1:4000";
 const REQUEST_TIMEOUT_MS = 20_000;
 let token = localStorage.getItem("routepulse_token") || "";
@@ -105,18 +108,6 @@ async function request<T>(path: string, options: RequestInit = {}, canRefresh = 
     );
   return body as T;
 }
-export type RoutePlan = {
-  stops: Array<{
-    id: string;
-    label: string;
-    lat: number;
-    lng: number;
-    demandKg?: number;
-  }>;
-  distanceKm: number;
-  durationMinutes: number;
-  algorithm: string;
-};
 export type MapRoute = {
   geometry: Array<[number, number]>;
   distanceMeters: number;
@@ -210,10 +201,14 @@ export const api = {
       method: "POST",
       body: JSON.stringify(data),
     }),
-  optimize: (driverId: string, orderIds: string[]) =>
+  optimize: (
+    driverId: string,
+    orderIds: string[],
+    constraints?: RouteOptimizationConstraints,
+  ) =>
     request<RoutePlan>("/api/routes/optimize", {
       method: "POST",
-      body: JSON.stringify({ driverId, orderIds }),
+      body: JSON.stringify({ driverId, orderIds, constraints }),
     }),
   track: (code: string) =>
     request<TrackingSnapshot>(`/api/track/${encodeURIComponent(code)}`),

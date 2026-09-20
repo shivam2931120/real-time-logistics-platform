@@ -19,6 +19,7 @@ import {
 } from "./domain/store.js";
 import { authenticate, issueDemoToken, issueToken, permit } from "./http/auth.js";
 import { haversineKm, optimizeRoute } from "./services/optimizer.js";
+import { estimateEta } from "./services/eta.js";
 import {
   createCheckout,
   orderIdForRazorpayOrder,
@@ -136,6 +137,17 @@ const supportMessageSchema = z.object({
   message: z.string().trim().min(1).max(2_000),
   internal: z.boolean().default(false),
 });
+const routeConstraintsSchema = z.object({
+  startAt: z.iso.datetime().optional(),
+  averageSpeedKph: z.number().min(5).max(120).optional(),
+  serviceMinutes: z.number().min(0).max(60).optional(),
+  maxRouteMinutes: z.number().int().min(1).max(1_440).optional(),
+  respectTimeWindows: z.boolean().default(true),
+  returnToDepot: z.boolean().default(false),
+  shiftEnd: z
+    .union([z.iso.datetime(), z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/)])
+    .optional(),
+});
 const driverForTenant = (driver: Driver, tenant: string) =>
   users.some(
     (user) => user.id === driver.userId && user.organizationId === tenant,
@@ -159,24 +171,8 @@ const restore = <T extends object>(target: T, snapshot: T) => {
   Object.assign(target, structuredClone(snapshot));
 };
 const etaFor = (order: Order) => {
-  if (["delivered", "cancelled", "failed"].includes(order.status)) return order;
   const driver = drivers.find((item) => item.id === order.assignedDriverId);
-  const start = driver?.location || order.pickup;
-  const distance = haversineKm(start, order.dropoff);
-  const minutes = Math.max(
-    5,
-    Math.round(
-      (distance / Math.max(5, organizationSettings.averageSpeedKph)) * 60 + 5,
-    ),
-  );
-  const estimatedArrivalAt = new Date(
-    Date.now() + minutes * 60_000,
-  ).toISOString();
-  return {
-    ...order,
-    estimatedArrivalAt,
-    lateRisk: estimatedArrivalAt > order.promisedAt,
-  };
+  return { ...order, ...estimateEta(order, driver, organizationSettings) };
 };
 const audit = async (
   user: User,
@@ -353,6 +349,8 @@ export function createApp() {
       promisedAt: order.promisedAt,
       estimatedArrivalAt: order.estimatedArrivalAt,
       lateRisk: Boolean(order.lateRisk),
+      etaConfidence: order.etaConfidence,
+      locationAgeSeconds: order.locationAgeSeconds,
       updatedAt: order.updatedAt,
       proof: order.proof
         ? {
@@ -1709,6 +1707,7 @@ export function createApp() {
           .object({
             driverId: z.string(),
             orderIds: z.array(z.string()).min(1).max(50),
+            constraints: routeConstraintsSchema.optional(),
           })
           .parse(req.body);
         const driver = drivers.find(
@@ -1731,8 +1730,18 @@ export function createApp() {
               ...o!.dropoff,
               id: o!.id,
               demandKg: o!.packageWeightKg,
+              priority: o!.priority,
+              deliveryWindowStart: o!.deliveryWindowStart,
+              promisedAt: o!.promisedAt,
             })),
             driver.capacityKg,
+            {
+              ...(body.constraints ?? {}),
+              averageSpeedKph:
+                body.constraints?.averageSpeedKph ??
+                organizationSettings.averageSpeedKph,
+              shiftEnd: body.constraints?.shiftEnd ?? driver.shiftEnd,
+            },
           ),
         );
       } catch (e) {

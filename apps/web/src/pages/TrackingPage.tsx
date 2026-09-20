@@ -193,6 +193,14 @@ export function TrackingPage() {
                         minute: "2-digit",
                       })}
                 </strong>
+                {tracking.etaConfidence && (
+                  <small className="eta-confidence">
+                    {tracking.etaConfidence} confidence
+                    {tracking.locationAgeSeconds !== undefined
+                      ? ` · GPS ${Math.max(0, Math.round(tracking.locationAgeSeconds / 60))}m ago`
+                      : ""}
+                  </small>
+                )}
               </span>
             </div>
           </div>

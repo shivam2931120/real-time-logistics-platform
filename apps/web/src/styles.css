@@ -1685,11 +1685,55 @@ td small {
   font-size: 0.74rem;
   font-weight: 700;
 }
-.field-label select {
+.field-label select,
+.field-label input {
   border: 1px solid var(--line);
   background: #fff;
   border-radius: 10px;
   padding: 10px;
+}
+.route-constraints {
+  margin: 0 18px 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.route-constraints .stop-picker-head {
+  position: static;
+}
+.route-constraint-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  padding-top: 12px;
+}
+.route-constraint-grid .field-label {
+  margin-bottom: 0;
+}
+.check-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 12px;
+  color: #68756d;
+  font-size: 0.72rem;
+}
+.route-plan-warnings {
+  grid-column: 1/-1;
+  display: grid;
+  gap: 2px;
+  border-left: 3px solid #e59f26;
+  padding: 7px 9px;
+  background: #e59f2614;
+}
+.route-plan-warnings small {
+  color: #b5c0b9;
+}
+.eta-confidence {
+  display: block;
+  margin-top: 3px;
+  text-transform: capitalize;
+  color: #8c9a91;
 }
 .capacity-meter {
   margin: 0 18px 16px;

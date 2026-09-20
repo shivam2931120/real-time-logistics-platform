@@ -105,6 +105,33 @@ describe("API", () => {
       }),
     );
   });
+  it("returns constraint-aware route ETAs", async () => {
+    const auth = await token("dispatcher");
+    const response = await request(app)
+      .post("/api/routes/optimize")
+      .set("authorization", `Bearer ${auth}`)
+      .send({
+        driverId: "d_rohan",
+        orderIds: ["ord_1001", "ord_1002"],
+        constraints: {
+          serviceMinutes: 4,
+          maxRouteMinutes: 600,
+          respectTimeWindows: true,
+          returnToDepot: true,
+        },
+      });
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual(
+      expect.objectContaining({
+        distanceKm: expect.any(Number),
+        durationMinutes: expect.any(Number),
+        finishAt: expect.any(String),
+        stops: expect.arrayContaining([
+          expect.objectContaining({ arrivalAt: expect.any(String) }),
+        ]),
+      }),
+    );
+  });
   it("creates, assigns, and prevents an invalid transition", async () => {
     const auth = await token("dispatcher");
     const created = await request(app)

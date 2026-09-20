@@ -37,6 +37,43 @@ export interface Driver {
   maintenanceDueAt?: string;
   maintenanceStatus?: "ok" | "due" | "overdue";
 }
+export interface RouteOptimizationConstraints {
+  /** ISO timestamp used as the start of the route simulation. */
+  startAt?: string;
+  /** Average road speed used by the deterministic fallback optimizer. */
+  averageSpeedKph?: number;
+  /** Minutes spent at each delivery stop. */
+  serviceMinutes?: number;
+  /** Reject plans that finish after this many minutes. */
+  maxRouteMinutes?: number;
+  /** Penalize and report delivery-window violations. */
+  respectTimeWindows?: boolean;
+  /** Include the drive back to the driver's starting location. */
+  returnToDepot?: boolean;
+  /** Driver shift boundary, either HH:mm or an ISO timestamp. */
+  shiftEnd?: string;
+}
+export interface RoutePlanStop extends Address {
+  id: string;
+  demandKg?: number;
+  priority?: Order["priority"];
+  deliveryWindowStart?: string;
+  promisedAt?: string;
+  arrivalAt?: string;
+  departureAt?: string;
+  waitMinutes?: number;
+  lateRisk?: boolean;
+}
+export interface RoutePlan {
+  stops: RoutePlanStop[];
+  distanceKm: number;
+  durationMinutes: number;
+  algorithm: string;
+  startAt?: string;
+  finishAt?: string;
+  returnToDepot?: boolean;
+  warnings?: string[];
+}
 export interface OrderEvent {
   id: string;
   type: string;
@@ -69,6 +106,8 @@ export interface Order {
   promisedAt: string;
   estimatedArrivalAt?: string;
   lateRisk?: boolean;
+  etaConfidence?: "high" | "medium" | "low";
+  locationAgeSeconds?: number;
   deliveryNotes?: string;
   parcelCode?: string;
   rescheduleCount?: number;
@@ -144,6 +183,8 @@ export interface TrackingSnapshot {
   promisedAt: string;
   estimatedArrivalAt?: string;
   lateRisk: boolean;
+  etaConfidence?: "high" | "medium" | "low";
+  locationAgeSeconds?: number;
   updatedAt: string;
   proof?: { recipientName: string; createdAt: string };
   events: Array<Pick<OrderEvent, "type" | "message" | "createdAt">>;

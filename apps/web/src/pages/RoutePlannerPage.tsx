@@ -54,6 +54,10 @@ export function RoutePlannerPage({
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [serviceMinutes, setServiceMinutes] = useState(6);
+  const [maxRouteMinutes, setMaxRouteMinutes] = useState(600);
+  const [respectTimeWindows, setRespectTimeWindows] = useState(true);
+  const [returnToDepot, setReturnToDepot] = useState(false);
   const initializedSelection = useRef(false);
   useEffect(() => {
     if (!driverId && drivers[0]) setDriverId(drivers[0].id);
@@ -89,7 +93,12 @@ export function RoutePlannerPage({
     setBusy(true);
     setError("");
     try {
-      const nextPlan = await api.optimize(driverId, selected);
+      const nextPlan = await api.optimize(driverId, selected, {
+        serviceMinutes,
+        maxRouteMinutes,
+        respectTimeWindows,
+        returnToDepot,
+      });
       setPlan(nextPlan);
       setPlanStops(nextPlan.stops);
     } catch (reason) {
@@ -264,6 +273,50 @@ export function RoutePlannerPage({
             </small>
           )}
         </div>
+        <div className="route-constraints">
+          <div className="stop-picker-head">
+            <strong>Route constraints</strong>
+            <small className="muted">Live ETA simulation</small>
+          </div>
+          <div className="route-constraint-grid">
+            <label className="field-label">
+              Service / stop (min)
+              <input
+                type="number"
+                min={0}
+                max={60}
+                value={serviceMinutes}
+                onChange={(event) => setServiceMinutes(Number(event.target.value) || 0)}
+              />
+            </label>
+            <label className="field-label">
+              Max route (min)
+              <input
+                type="number"
+                min={1}
+                max={1440}
+                value={maxRouteMinutes}
+                onChange={(event) => setMaxRouteMinutes(Number(event.target.value) || 1)}
+              />
+            </label>
+          </div>
+          <label className="check-row">
+            <input
+              type="checkbox"
+              checked={respectTimeWindows}
+              onChange={(event) => setRespectTimeWindows(event.target.checked)}
+            />
+            <span>Respect delivery windows and flag late stops</span>
+          </label>
+          <label className="check-row">
+            <input
+              type="checkbox"
+              checked={returnToDepot}
+              onChange={(event) => setReturnToDepot(event.target.checked)}
+            />
+            <span>Include return to depot in duration</span>
+          </label>
+        </div>
         {!drivers.length && (
           <p className="inline-notice">Add a driver before planning a route.</p>
         )}
@@ -323,6 +376,12 @@ export function RoutePlannerPage({
                 <small>Vehicle utilization</small>
               </span>
             </div>
+            {plan.warnings?.length ? (
+              <div className="route-plan-warnings" role="status">
+                <strong>{plan.warnings.length} timing warning{plan.warnings.length === 1 ? "" : "s"}</strong>
+                <small>{plan.warnings[0]}</small>
+              </div>
+            ) : null}
             <ol>
               {planStops.map((stop, index) => (
                 <li
@@ -340,7 +399,13 @@ export function RoutePlannerPage({
                   <span>{index + 1}</span>
                   <div>
                     <strong>{stop.label}</strong>
-                    <small>{stop.demandKg || 0} kg delivery</small>
+                    <small>
+                      {stop.demandKg || 0} kg delivery
+                      {stop.arrivalAt
+                        ? ` · ETA ${new Date(stop.arrivalAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
+                        : ""}
+                      {stop.waitMinutes ? ` · wait ${stop.waitMinutes}m` : ""}
+                    </small>
                   </div>
                   <GripVertical
                     className="route-drag-icon"

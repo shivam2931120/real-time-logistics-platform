@@ -59,7 +59,7 @@ All private endpoints require `Authorization: Bearer <JWT>`. Demo login accepts 
 | POST      | `/api/orders/:id/accept`                            | assigned driver                  | accept assignment                             |
 | POST      | `/api/orders/:id/reject`                            | assigned driver                  | reject and release assignment                 |
 | POST      | `/api/orders/:id/proof`                             | assigned driver                  | verify PIN and atomically complete with proof |
-| POST      | `/api/routes/optimize`                              | dispatcher/admin                 | capacity-aware stop ordering                  |
+| POST      | `/api/routes/optimize`                              | dispatcher/admin                 | capacity-, priority-, window- and shift-aware stop ordering with per-stop ETAs |
 | GET       | `/api/drivers`                                      | dispatcher/admin                 | tenant fleet state                            |
 | GET       | `/api/drivers/:id/locations?limit=100`              | dispatcher/admin                 | recent persisted GPS history                  |
 | PATCH     | `/api/drivers/:id`                                  | dispatcher/admin                 | update operational status/capacity            |
@@ -95,7 +95,7 @@ Socket client events: `location:update`, `order:subscribe`. Server events: `driv
 
 ## 6. Optimization
 
-Input is a depot/current position, candidate stops with coordinates/demand, vehicle capacity, and service minutes. The service rejects stops exceeding capacity, builds a nearest-neighbor route using Haversine distance, improves it using bounded 2-opt swaps, and estimates duration at a configurable urban average speed. It is deterministic and explainable. ETA projection flags delivery-window risk, but routing does not use live traffic or global VRP optimization.
+Input is a depot/current position, candidate stops with coordinates/demand, vehicle capacity, and optional route constraints (`startAt`, speed, service minutes, max duration, delivery-window handling, return-to-depot, and shift end). The service rejects stops exceeding capacity, scores nearest-neighbour choices using priority and promised-time risk, and uses bounded 2-opt only when no timing constraints are present. The final simulation returns per-stop arrival/departure times, waiting minutes, late-risk flags, warnings, finish time, and optional return distance. It is deterministic and explainable; it remains a traffic-free fallback and does not claim global VRP optimality.
 
 ## 7. Security and privacy
 
