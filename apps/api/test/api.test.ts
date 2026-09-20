@@ -649,7 +649,30 @@ describe("API", () => {
         await request(app)
           .get(`/api/support/tickets/${created.body.id}/messages`)
           .set("authorization", `Bearer ${customer}`)
-      ).body,
+    ).body,
     ).toHaveLength(2);
+  });
+  it("replays a mutation with the same idempotency key", async () => {
+    const customer = await token("customer");
+    const key = `support-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const payload = {
+      subject: "Idempotent request",
+      category: "delivery",
+      message: "This request must be applied once.",
+    };
+    const first = await request(app)
+      .post("/api/support/tickets")
+      .set("authorization", `Bearer ${customer}`)
+      .set("Idempotency-Key", key)
+      .send(payload);
+    const replay = await request(app)
+      .post("/api/support/tickets")
+      .set("authorization", `Bearer ${customer}`)
+      .set("Idempotency-Key", key)
+      .send(payload);
+    expect(first.status).toBe(201);
+    expect(replay.status).toBe(201);
+    expect(replay.body.id).toBe(first.body.id);
+    expect(supportTickets.filter((ticket) => ticket.id === first.body.id)).toHaveLength(1);
   });
 });

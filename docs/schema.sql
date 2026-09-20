@@ -25,6 +25,8 @@ CREATE TABLE IF NOT EXISTS order_events (id uuid PRIMARY KEY, organization_id uu
 CREATE INDEX IF NOT EXISTS order_events_order_time_idx ON order_events(order_id,created_at);
 CREATE TABLE IF NOT EXISTS outbox_jobs (id uuid PRIMARY KEY, organization_id uuid NOT NULL REFERENCES organizations(id), topic text NOT NULL, payload jsonb NOT NULL, status text NOT NULL DEFAULT 'pending', attempts int NOT NULL DEFAULT 0, available_at timestamptz NOT NULL DEFAULT now(), created_at timestamptz NOT NULL DEFAULT now());
 CREATE INDEX IF NOT EXISTS outbox_pending_idx ON outbox_jobs(status,available_at) WHERE status='pending';
+CREATE TABLE IF NOT EXISTS idempotency_records (organization_id uuid NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, key text NOT NULL, route text NOT NULL, response_status integer NOT NULL, response_body jsonb NOT NULL DEFAULT '{}', created_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY(organization_id,key,route));
+CREATE INDEX IF NOT EXISTS idempotency_records_time_idx ON idempotency_records(created_at);
 CREATE TABLE IF NOT EXISTS payments (id uuid PRIMARY KEY, organization_id uuid NOT NULL REFERENCES organizations(id), order_id uuid NOT NULL REFERENCES orders(id), provider text NOT NULL, provider_ref text NOT NULL, amount_minor bigint NOT NULL, currency char(3) NOT NULL, status text NOT NULL, created_at timestamptz NOT NULL DEFAULT now(), UNIQUE(provider,provider_ref));
 CREATE INDEX IF NOT EXISTS payments_order_time_idx ON payments(order_id,created_at DESC);
 CREATE TABLE IF NOT EXISTS payment_webhook_events (id uuid PRIMARY KEY, provider text NOT NULL, event_key text NOT NULL UNIQUE, event_name text NOT NULL, payload jsonb NOT NULL DEFAULT '{}', received_at timestamptz NOT NULL DEFAULT now());

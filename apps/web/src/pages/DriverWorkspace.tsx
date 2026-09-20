@@ -85,33 +85,44 @@ export function DriverWorkspace({
   const sendAction = async (action: QueuedDriverAction) => {
     switch (action.type) {
       case "accept":
-        return api.accept(action.orderId);
+        return api.accept(action.orderId, action.id);
       case "reject":
-        return api.reject(action.orderId, String(action.data.reason || ""));
+        return api.reject(action.orderId, String(action.data.reason || ""), action.id);
       case "status":
-        return api.status(action.orderId, action.data.status as OrderStatus);
+        return api.status(action.orderId, action.data.status as OrderStatus, action.id);
       case "scan":
-        return api.scan(action.orderId, action.data as { parcelCode: string; stage: "pickup" | "hub" | "delivery" });
+        return api.scan(
+          action.orderId,
+          action.data as { parcelCode: string; stage: "pickup" | "hub" | "delivery" },
+          action.id,
+        );
       case "proof":
-        return api.proof(action.orderId, action.data as Parameters<typeof api.proof>[1]);
+        return api.proof(action.orderId, action.data as Parameters<typeof api.proof>[1], action.id);
     }
   };
   const runAction = async (
     action: Omit<QueuedDriverAction, "id" | "createdAt" | "attempts">,
   ): Promise<"sent" | "queued"> => {
+    const id = crypto.randomUUID();
+    const liveAction: QueuedDriverAction = {
+      ...action,
+      id,
+      createdAt: new Date().toISOString(),
+      attempts: 0,
+    };
     if (!navigator.onLine) {
-      setActionQueueSize(actions.enqueue(action));
+      setActionQueueSize(actions.enqueue(action, id));
       setActionSyncState("offline");
       return "queued";
     }
     try {
-      await sendAction({ ...action, id: "live", createdAt: new Date().toISOString(), attempts: 0 });
+      await sendAction(liveAction);
       setActionQueueSize(actions.count());
       setActionSyncState("live");
       return "sent";
     } catch (reason) {
       if (reason instanceof ApiError && reason.status < 500 && reason.status !== 408) throw reason;
-      setActionQueueSize(actions.enqueue(action));
+      setActionQueueSize(actions.enqueue(action, id));
       setActionSyncState("queued");
       return "queued";
     }

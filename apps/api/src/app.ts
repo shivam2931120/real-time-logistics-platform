@@ -90,6 +90,11 @@ import {
 } from "./services/routeRuns.js";
 import { reconcilePayments } from "./services/reconciliation.js";
 import { operationalAlerts } from "./services/operationalAlerts.js";
+import {
+  acquireIdempotencyLock,
+  getIdempotencyResult,
+  rememberIdempotencyResult,
+} from "./services/idempotency.js";
 
 const coordinate = z.object({
   label: z.string().min(3).max(160),
@@ -498,6 +503,40 @@ export function createApp() {
     }
   });
   app.use("/api", authenticate);
+  app.use("/api", async (req, res, next) => {
+    if (!["POST", "PUT", "PATCH", "DELETE"].includes(req.method)) return next();
+    const key = req.header("idempotency-key")?.trim();
+    if (!key) return next();
+    if (key.length > 128 || !/^[A-Za-z0-9._:-]+$/.test(key))
+      return res.status(400).json({ error: "Invalid Idempotency-Key" });
+    const user = req.user;
+    if (!user) return next();
+    const route = `${req.method} ${req.path}`;
+    const replay = await getIdempotencyResult(user.organizationId, key, route);
+    if (replay) return res.status(replay.status).json(replay.body);
+    const release = await acquireIdempotencyLock(user.organizationId, key, route);
+    const secondReplay = await getIdempotencyResult(user.organizationId, key, route);
+    if (secondReplay) {
+      release();
+      return res.status(secondReplay.status).json(secondReplay.body);
+    }
+    let stored = false;
+    const originalJson = res.json.bind(res);
+    res.json = ((body: unknown) => {
+      if (!stored) {
+        stored = true;
+        void rememberIdempotencyResult(user.organizationId, key, route, {
+          status: res.statusCode,
+          body,
+        });
+        release();
+      }
+      return originalJson(body);
+    }) as typeof res.json;
+    res.once("finish", release);
+    res.once("close", release);
+    return next();
+  });
   app.get("/api/me", (req, res) => res.json(req.user));
   app.get("/api/orders", (req, res) => {
     let data = store.listOrders(req.user!.organizationId);

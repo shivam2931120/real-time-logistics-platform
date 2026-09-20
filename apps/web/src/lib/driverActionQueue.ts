@@ -33,11 +33,14 @@ export const driverActionQueue = (userId: string) => {
   return {
     list: () => read(key),
     count: () => read(key).length,
-    enqueue: (action: Omit<QueuedDriverAction, "id" | "createdAt" | "attempts">) => {
+    enqueue: (
+      action: Omit<QueuedDriverAction, "id" | "createdAt" | "attempts">,
+      id = crypto.randomUUID(),
+    ) => {
       const actions = read(key);
       const queued: QueuedDriverAction = {
         ...action,
-        id: crypto.randomUUID(),
+        id,
         createdAt: new Date().toISOString(),
         attempts: 0,
       };

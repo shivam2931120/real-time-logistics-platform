@@ -216,10 +216,11 @@ export const api = {
       method: "POST",
       body: JSON.stringify(driverId ? { driverId } : {}),
     }),
-  status: (id: string, status: OrderStatus) =>
+  status: (id: string, status: OrderStatus, idempotencyKey?: string) =>
     request<Order>(`/api/orders/${id}/status`, {
       method: "PATCH",
       body: JSON.stringify({ status }),
+      ...(idempotencyKey ? { headers: { "Idempotency-Key": idempotencyKey } } : {}),
     }),
   create: (data: unknown) =>
     request<Order>("/api/orders", {
@@ -237,12 +238,17 @@ export const api = {
     }),
   track: (code: string) =>
     request<TrackingSnapshot>(`/api/track/${encodeURIComponent(code)}`),
-  accept: (id: string) =>
-    request<Order>(`/api/orders/${id}/accept`, { method: "POST", body: "{}" }),
-  reject: (id: string, reason: string) =>
+  accept: (id: string, idempotencyKey?: string) =>
+    request<Order>(`/api/orders/${id}/accept`, {
+      method: "POST",
+      body: "{}",
+      ...(idempotencyKey ? { headers: { "Idempotency-Key": idempotencyKey } } : {}),
+    }),
+  reject: (id: string, reason: string, idempotencyKey?: string) =>
     request<Order>(`/api/orders/${id}/reject`, {
       method: "POST",
       body: JSON.stringify({ reason }),
+      ...(idempotencyKey ? { headers: { "Idempotency-Key": idempotencyKey } } : {}),
     }),
   proof: (
     id: string,
@@ -255,10 +261,12 @@ export const api = {
       verificationMethod?: "pin" | "qr" | "pin+qr";
       location?: { lat: number; lng: number };
     },
+    idempotencyKey?: string,
   ) =>
     request<Order>(`/api/orders/${id}/proof`, {
       method: "POST",
       body: JSON.stringify(data),
+      ...(idempotencyKey ? { headers: { "Idempotency-Key": idempotencyKey } } : {}),
     }),
   exceptions: () => request<DeliveryException[]>("/api/exceptions"),
   operationalAlerts: () => request<OperationalAlert[]>("/api/alerts/operations"),
@@ -377,10 +385,11 @@ export const api = {
       body: JSON.stringify({ status, note }),
     }),
   scans: (id: string) => request<ParcelScan[]>(`/api/orders/${id}/scans`),
-  scan: (id: string, data: { parcelCode: string; stage: ParcelScanStage }) =>
+  scan: (id: string, data: { parcelCode: string; stage: ParcelScanStage }, idempotencyKey?: string) =>
     request<ParcelScan>(`/api/orders/${id}/scans`, {
       method: "POST",
       body: JSON.stringify(data),
+      ...(idempotencyKey ? { headers: { "Idempotency-Key": idempotencyKey } } : {}),
     }),
   supportTickets: () => request<SupportTicket[]>("/api/support/tickets"),
   createSupportTicket: (data: {
