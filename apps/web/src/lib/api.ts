@@ -11,6 +11,7 @@ import type {
   OrderStatus,
   OrganizationSettings,
   OrganizationSummary,
+  OperationalAlert,
   BillingSummary,
   PaymentReconciliationSummary,
   IntegrationApiKeySummary,
@@ -260,6 +261,7 @@ export const api = {
       body: JSON.stringify(data),
     }),
   exceptions: () => request<DeliveryException[]>("/api/exceptions"),
+  operationalAlerts: () => request<OperationalAlert[]>("/api/alerts/operations"),
   createException: (
     orderId: string,
     type: ExceptionType,

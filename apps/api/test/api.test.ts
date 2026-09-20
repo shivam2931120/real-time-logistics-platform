@@ -150,6 +150,24 @@ describe("API", () => {
       ]),
     );
   });
+  it("returns explainable GPS and route-run operational alerts", async () => {
+    const auth = await token("dispatcher");
+    const response = await request(app)
+      .get("/api/alerts/operations?staleMinutes=2&dwellMinutes=5&deviationKm=1")
+      .set("authorization", `Bearer ${auth}`);
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual(expect.any(Array));
+    for (const alert of response.body) {
+      expect(alert).toEqual(
+        expect.objectContaining({
+          type: expect.stringMatching(/^(route_deviation|excessive_dwell|stale_gps)$/),
+          severity: expect.stringMatching(/^(warning|critical)$/),
+          threshold: expect.any(Number),
+          value: expect.any(Number),
+        }),
+      );
+    }
+  });
   it("returns constraint-aware route ETAs", async () => {
     const auth = await token("dispatcher");
     const response = await request(app)

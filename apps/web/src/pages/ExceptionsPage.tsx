@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, CheckCircle2, Clock3, RefreshCw } from "lucide-react";
-import type { DeliveryException, Order } from "@routepulse/shared";
+import type { DeliveryException, OperationalAlert, Order } from "@routepulse/shared";
 import { api } from "../lib/api";
 
 export function ExceptionsPage({ orders }: { orders: Order[] }) {
   const [items, setItems] = useState<DeliveryException[]>([]);
+  const [alerts, setAlerts] = useState<OperationalAlert[]>([]);
   const [filter, setFilter] = useState<"open" | "resolved" | "all">("open");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -13,7 +14,12 @@ export function ExceptionsPage({ orders }: { orders: Order[] }) {
     setLoading(true);
     setError("");
     try {
-      setItems(await api.exceptions());
+      const [exceptionResult, alertResult] = await Promise.all([
+        api.exceptions(),
+        api.operationalAlerts(),
+      ]);
+      setItems(exceptionResult);
+      setAlerts(alertResult);
     } catch (reason) {
       setError(
         reason instanceof Error ? reason.message : "Unable to load exceptions",
@@ -87,6 +93,28 @@ export function ExceptionsPage({ orders }: { orders: Order[] }) {
           </button>
         ))}
       </div>
+      {alerts.length > 0 && (
+        <div className="panel operational-alerts">
+          <div className="panel-head">
+            <div>
+              <span className="eyebrow">Derived from GPS and route runs</span>
+              <h3>{alerts.length} live operational signal{alerts.length === 1 ? "" : "s"}</h3>
+            </div>
+            <AlertTriangle />
+          </div>
+          {alerts.map((alert) => (
+            <div className="operational-alert" key={alert.id}>
+              <span className={`exception-icon ${alert.severity}`}><AlertTriangle /></span>
+              <div>
+                <strong>{alert.title}</strong>
+                <p>{alert.description}</p>
+                <small>{alert.type.replaceAll("_", " ")} · threshold {alert.threshold} {alert.unit}</small>
+              </div>
+              <span className={`reconciliation-status ${alert.severity === "critical" ? "has-mismatch" : "missing"}`}>{alert.severity}</span>
+            </div>
+          ))}
+        </div>
+      )}
       {error && (
         <div className="inline-retry" role="alert">
           <span>{error}</span>

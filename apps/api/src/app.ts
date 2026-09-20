@@ -89,6 +89,7 @@ import {
   updateRouteRunStatus,
 } from "./services/routeRuns.js";
 import { reconcilePayments } from "./services/reconciliation.js";
+import { operationalAlerts } from "./services/operationalAlerts.js";
 
 const coordinate = z.object({
   label: z.string().min(3).max(160),
@@ -1260,6 +1261,26 @@ export function createApp() {
         ),
       ),
   );
+  app.get("/api/alerts/operations", permit("admin", "dispatcher", "driver"), async (req, res, next) => {
+    try {
+      const parseThreshold = (value: unknown, fallback: number) => {
+        const parsed = Number(value ?? fallback);
+        return Number.isFinite(parsed) ? parsed : fallback;
+      };
+      const alerts = await operationalAlerts(req.user!.organizationId, {
+        staleMinutes: parseThreshold(req.query.staleMinutes, 10),
+        dwellMinutes: parseThreshold(req.query.dwellMinutes, 20),
+        deviationKm: parseThreshold(req.query.deviationKm, 3),
+      });
+      if (req.user!.role === "driver") {
+        const driver = drivers.find((item) => item.userId === req.user!.id);
+        return res.json(alerts.filter((alert) => alert.driverId === driver?.id));
+      }
+      return res.json(alerts);
+    } catch (error) {
+      return next(error);
+    }
+  });
   app.post(
     "/api/orders/:id/exceptions",
     permit("admin", "dispatcher", "driver"),

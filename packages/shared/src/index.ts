@@ -265,6 +265,23 @@ export interface PaymentReconciliationSummary {
   mismatchCount: number;
   rows: PaymentReconciliationRow[];
 }
+export type OperationalAlertType = "route_deviation" | "excessive_dwell" | "stale_gps";
+export type OperationalAlertSeverity = "warning" | "critical";
+export interface OperationalAlert {
+  id: string;
+  organizationId: string;
+  type: OperationalAlertType;
+  severity: OperationalAlertSeverity;
+  title: string;
+  description: string;
+  driverId?: string;
+  orderId?: string;
+  routeRunId?: string;
+  threshold: number;
+  value: number;
+  unit: "km" | "minutes";
+  createdAt: string;
+}
 export interface TrackingSnapshot {
   trackingCode: string;
   customerName: string;
