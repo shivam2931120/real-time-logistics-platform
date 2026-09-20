@@ -7,6 +7,7 @@ import type {
   IntegrationWebhookSummary,
   OrganizationSettings,
   PaymentReconciliationSummary,
+  PaymentSettlementSummary,
   Role,
   User,
 } from "@routepulse/shared";
@@ -19,10 +20,12 @@ export function AdminPage() {
   const [tab, setTab] = useState<"team" | "settings" | "audit" | "integrations">("team");
   const [billing, setBilling] = useState<BillingSummary | null>(null);
   const [reconciliation, setReconciliation] = useState<PaymentReconciliationSummary | null>(null);
+  const [settlements, setSettlements] = useState<PaymentSettlementSummary | null>(null);
   const [apiKeys, setApiKeys] = useState<IntegrationApiKeySummary[]>([]);
   const [webhooks, setWebhooks] = useState<IntegrationWebhookSummary[]>([]);
   const [keyName, setKeyName] = useState("Operations API");
   const [webhookUrl, setWebhookUrl] = useState("");
+  const [settlementCsv, setSettlementCsv] = useState("");
   const [revealedSecret, setRevealedSecret] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -32,12 +35,13 @@ export function AdminPage() {
     setLoading(true);
     setError("");
     try {
-      const [team, records, configuration, billingSummary, paymentReconciliation, keys, hooks] = await Promise.all([
+      const [team, records, configuration, billingSummary, paymentReconciliation, paymentSettlements, keys, hooks] = await Promise.all([
         api.adminUsers(),
         api.audit(),
         api.settings(),
         api.billingSummary(),
         api.paymentReconciliation(),
+        api.paymentSettlements(),
         api.integrationApiKeys(),
         api.integrationWebhooks(),
       ]);
@@ -46,6 +50,7 @@ export function AdminPage() {
       setSettings(configuration);
       setBilling(billingSummary);
       setReconciliation(paymentReconciliation);
+      setSettlements(paymentSettlements);
       setApiKeys(keys);
       setWebhooks(hooks);
     } catch (reason) {
@@ -56,6 +61,37 @@ export function AdminPage() {
       );
     } finally {
       setLoading(false);
+    }
+  };
+  const importSettlements = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (busy || !settlementCsv.trim()) return;
+    setBusy(true);
+    setError("");
+    setMessage("");
+    try {
+      const summary = await api.importPaymentSettlements(settlementCsv);
+      setSettlements(summary);
+      setSettlementCsv("");
+      setMessage(`Imported ${summary.rowCount} settlement rows. Review ${summary.reviewCount} flagged row${summary.reviewCount === 1 ? "" : "s"}.`);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Unable to import settlement CSV");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const reviewSettlement = async (id: string, reviewStatus: "accepted" | "rejected") => {
+    if (busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      await api.reviewPaymentSettlement(id, reviewStatus);
+      setSettlements(await api.paymentSettlements());
+      setMessage(`Settlement row ${reviewStatus}.`);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Unable to review settlement row");
+    } finally {
+      setBusy(false);
     }
   };
   const createKey = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -369,6 +405,54 @@ export function AdminPage() {
                 )}
               </div>
             )}
+            <div className="reconciliation-block settlement-review">
+              <div className="reconciliation-head">
+                <div>
+                  <span className="eyebrow">Provider settlement review</span>
+                  <h4>Import Razorpay settlement CSV</h4>
+                </div>
+                <span className={`reconciliation-status ${settlements?.reviewCount ? "has-mismatch" : "matched"}`}>
+                  {settlements ? `${settlements.reviewCount} to review` : "No import yet"}
+                </span>
+              </div>
+              <form onSubmit={importSettlements} className="settlement-import-form">
+                <textarea
+                  value={settlementCsv}
+                  onChange={(event) => setSettlementCsv(event.target.value)}
+                  placeholder="payment_id,order_id,amount,currency,status,fee,settled_at\n..."
+                  aria-label="Settlement CSV"
+                  rows={3}
+                />
+                <button className="button primary" disabled={busy || !settlementCsv.trim()}>
+                  {busy ? "Importing…" : "Import settlement"}
+                </button>
+              </form>
+              {settlements && (
+                <>
+                  <div className="reconciliation-metrics">
+                    <span><strong>{settlements.rowCount}</strong><small>rows</small></span>
+                    <span><strong>{settlements.matchedCount}</strong><small>matched</small></span>
+                    <span><strong>{settlements.missingOrderCount}</strong><small>missing orders</small></span>
+                    <span><strong>{settlements.refundCount}</strong><small>refund/chargeback</small></span>
+                  </div>
+                  <div className="reconciliation-rows">
+                    {settlements.rows.filter((row) => row.reviewStatus === "pending").slice(0, 8).map((row) => (
+                      <div className="reconciliation-row" key={row.id}>
+                        <span>
+                          <strong>{row.providerRef}</strong>
+                          <small>{row.trackingCode || "No matched order"} · {row.matchStatus.replace("_", " ")} · {row.currency} {row.providerAmount.toFixed(2)}</small>
+                        </span>
+                        <span className="settlement-actions">
+                          <button className="button ghost" onClick={() => void reviewSettlement(row.id, "accepted")} disabled={busy}>Accept</button>
+                          <button className="button ghost danger" onClick={() => void reviewSettlement(row.id, "rejected")} disabled={busy}>Reject</button>
+                        </span>
+                      </div>
+                    ))}
+                    {!settlements.reviewCount && <small className="muted-copy">No flagged settlement rows.</small>}
+                  </div>
+                </>
+              )}
+            </div>
           </div>
           <div className="panel integration-card">
             <div className="panel-head"><div><span className="eyebrow">Server-to-server</span><h3>Integration API keys</h3></div><KeyRound /></div>

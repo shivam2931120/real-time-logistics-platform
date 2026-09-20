@@ -37,6 +37,7 @@ Driver geolocation ──Socket.IO──> validated location store + tenant/trac
 | OrderEvent        | id, orderId, type, actorId, payload, createdAt                                                                                                                                            |
 | Notification      | id, orderId, channel, recipient, template, status, attempts                                                                                                                               |
 | Payment           | id, orderId, provider, providerRef, amount, currency, status                                                                                                                              |
+| PaymentSettlement | id, tenant/provider/providerRef, matched order, provider/order amounts, fees/net, currency, provider status, match/review status, settlement/import timestamps |
 | AuditEvent        | tenant, actor, action, resourceType/id, metadata, createdAt                                                                                                                               |
 | DeliveryException | orderId, type, description, status, resolution, actor/timestamps                                                                                                                          |
 | ProofOfDelivery   | orderId, driverId, recipientName, signatureData, createdAt                                                                                                                                |
@@ -64,6 +65,8 @@ All private endpoints require `Authorization: Bearer <JWT>`. Demo login accepts 
 | GET/POST  | `/api/route-runs`                                   | operations / assigned driver     | list or save a versioned route draft; driver sees only own runs              |
 | POST/PATCH| `/api/route-runs/:id/publish`, `/api/route-runs/:id/status` | operations/assigned driver | publish validated stops and advance an owned run with version checks         |
 | GET       | `/api/payments/reconciliation?days=30`             | admin/dispatcher            | tenant-scoped order/payment ledger reconciliation with explicit gaps         |
+| GET/POST  | `/api/payments/settlements`, `/api/payments/settlements/import` | admin/dispatcher | list or import bounded provider settlement CSV rows for review |
+| PATCH     | `/api/payments/settlements/:id`                    | admin                         | accept/reject an imported settlement anomaly with an audit event |
 | GET       | `/api/alerts/operations`                            | admin/dispatcher/driver     | thresholded stale-GPS, route-deviation and excessive-dwell signals           |
 | GET       | `/api/drivers`                                      | dispatcher/admin                 | tenant fleet state                            |
 | GET       | `/api/drivers/:id/locations?limit=100`              | dispatcher/admin                 | recent persisted GPS history                  |

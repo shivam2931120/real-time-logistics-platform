@@ -265,6 +265,44 @@ export interface PaymentReconciliationSummary {
   mismatchCount: number;
   rows: PaymentReconciliationRow[];
 }
+export type SettlementMatchStatus =
+  | "matched"
+  | "missing_order"
+  | "amount_mismatch"
+  | "currency_mismatch"
+  | "refund"
+  | "chargeback";
+export type SettlementReviewStatus = "pending" | "accepted" | "rejected";
+export interface PaymentSettlementRow {
+  id: string;
+  organizationId: string;
+  provider: string;
+  providerRef: string;
+  orderId?: string;
+  trackingCode?: string;
+  orderAmount?: number;
+  providerAmount: number;
+  feeAmount?: number;
+  netAmount?: number;
+  currency: string;
+  providerStatus: string;
+  matchStatus: SettlementMatchStatus;
+  reviewStatus: SettlementReviewStatus;
+  note?: string;
+  settledAt?: string;
+  importedAt: string;
+}
+export interface PaymentSettlementSummary {
+  provider: string;
+  importedAt?: string;
+  rowCount: number;
+  matchedCount: number;
+  reviewCount: number;
+  missingOrderCount: number;
+  mismatchCount: number;
+  refundCount: number;
+  rows: PaymentSettlementRow[];
+}
 export type OperationalAlertType = "route_deviation" | "excessive_dwell" | "stale_gps";
 export type OperationalAlertSeverity = "warning" | "critical";
 export interface OperationalAlert {

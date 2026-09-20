@@ -14,6 +14,8 @@ import type {
   OperationalAlert,
   BillingSummary,
   PaymentReconciliationSummary,
+  PaymentSettlementRow,
+  PaymentSettlementSummary,
   IntegrationApiKeySummary,
   IntegrationWebhookSummary,
   ParcelScan,
@@ -300,6 +302,18 @@ export const api = {
   billingSummary: () => request<BillingSummary>("/api/billing/summary"),
   paymentReconciliation: (days = 30) =>
     request<PaymentReconciliationSummary>(`/api/payments/reconciliation?days=${days}`),
+  paymentSettlements: () =>
+    request<PaymentSettlementSummary>("/api/payments/settlements"),
+  importPaymentSettlements: (csv: string) =>
+    request<PaymentSettlementSummary>("/api/payments/settlements/import", {
+      method: "POST",
+      body: JSON.stringify({ csv }),
+    }),
+  reviewPaymentSettlement: (id: string, reviewStatus: "accepted" | "rejected", note?: string) =>
+    request<PaymentSettlementRow>(`/api/payments/settlements/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ reviewStatus, note }),
+    }),
   integrationApiKeys: () => request<IntegrationApiKeySummary[]>("/api/admin/integrations/api-keys"),
   createIntegrationApiKey: (name: string) =>
     request<IntegrationApiKeySummary & { key: string }>("/api/admin/integrations/api-keys", {

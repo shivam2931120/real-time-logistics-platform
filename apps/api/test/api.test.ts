@@ -150,6 +150,38 @@ describe("API", () => {
       ]),
     );
   });
+  it("imports and reviews provider settlement rows", async () => {
+    const auth = await token("admin");
+    const importResponse = await request(app)
+      .post("/api/payments/settlements/import")
+      .set("authorization", `Bearer ${auth}`)
+      .send({
+        csv: [
+          "payment_id,tracking_code,amount,currency,status,fee,settled_at",
+          "pay_settlement_test,RP-DEMO01,848,INR,settled,12,2026-09-20T10:00:00Z",
+          "pay_refund_test,RP-NOT-FOUND,100,INR,refunded,0,2026-09-20T10:00:00Z",
+        ].join("\n"),
+      });
+    expect(importResponse.status).toBe(201);
+    expect(importResponse.body).toEqual(
+      expect.objectContaining({
+        rowCount: expect.any(Number),
+        matchedCount: expect.any(Number),
+        refundCount: expect.any(Number),
+        reviewCount: expect.any(Number),
+      }),
+    );
+    const pending = importResponse.body.rows.find(
+      (row: { providerRef: string; reviewStatus: string }) => row.providerRef === "pay_refund_test",
+    );
+    expect(pending.reviewStatus).toBe("pending");
+    const reviewed = await request(app)
+      .patch(`/api/payments/settlements/${pending.id}`)
+      .set("authorization", `Bearer ${auth}`)
+      .send({ reviewStatus: "rejected", note: "Refund requires finance confirmation" });
+    expect(reviewed.status).toBe(200);
+    expect(reviewed.body.reviewStatus).toBe("rejected");
+  });
   it("returns explainable GPS and route-run operational alerts", async () => {
     const auth = await token("dispatcher");
     const response = await request(app)

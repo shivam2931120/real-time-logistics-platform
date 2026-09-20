@@ -91,6 +91,11 @@ import {
 import { reconcilePayments } from "./services/reconciliation.js";
 import { operationalAlerts } from "./services/operationalAlerts.js";
 import {
+  importSettlementCsv,
+  listSettlementRows,
+  reviewSettlement,
+} from "./services/settlements.js";
+import {
   acquireIdempotencyLock,
   getIdempotencyResult,
   rememberIdempotencyResult,
@@ -1957,6 +1962,35 @@ export function createApp() {
       if (!Number.isFinite(rawDays) || rawDays < 1 || rawDays > 90)
         return res.status(400).json({ error: "days must be between 1 and 90" });
       return res.json(await reconcilePayments(req.user!.organizationId, rawDays));
+    } catch (error) {
+      return next(error);
+    }
+  });
+  app.get("/api/payments/settlements", permit("admin", "dispatcher"), async (req, res, next) => {
+    try {
+      return res.json(await listSettlementRows(req.user!.organizationId));
+    } catch (error) {
+      return next(error);
+    }
+  });
+  app.post("/api/payments/settlements/import", permit("admin", "dispatcher"), async (req, res, next) => {
+    try {
+      const input = z.object({ csv: z.string().min(1).max(100_000) }).parse(req.body);
+      return res.status(201).json(await importSettlementCsv(req.user!.organizationId, input.csv));
+    } catch (error) {
+      return next(error);
+    }
+  });
+  app.patch("/api/payments/settlements/:id", permit("admin"), async (req, res, next) => {
+    try {
+      const input = z.object({ reviewStatus: z.enum(["accepted", "rejected"]), note: z.string().max(500).optional() }).parse(req.body);
+      const updated = await reviewSettlement(req.user!.organizationId, String(req.params.id), input.reviewStatus, input.note);
+      if (!updated) return res.status(404).json({ error: "Settlement row not found" });
+      await audit(req.user!, "payment.settlement_reviewed", "payment_settlement", updated.id, {
+        reviewStatus: input.reviewStatus,
+        note: input.note,
+      });
+      return res.json(updated);
     } catch (error) {
       return next(error);
     }
