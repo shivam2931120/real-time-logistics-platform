@@ -1729,6 +1729,13 @@ td small {
 .route-plan-warnings small {
   color: #b5c0b9;
 }
+.location-sync-status {
+  display: inline-flex;
+  align-items: center;
+  margin: 0;
+  color: #75847b;
+  font-size: 0.7rem;
+}
 .eta-confidence {
   display: block;
   margin-top: 3px;

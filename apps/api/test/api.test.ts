@@ -132,6 +132,25 @@ describe("API", () => {
       }),
     );
   });
+  it("keeps out-of-order offline location fixes in history without rewinding live state", async () => {
+    const auth = await token("driver");
+    const profile = await request(app)
+      .get("/api/drivers/me")
+      .set("authorization", `Bearer ${auth}`);
+    expect(profile.status).toBe(200);
+    const response = await request(app)
+      .post(`/api/drivers/${profile.body.id}/location`)
+      .set("authorization", `Bearer ${auth}`)
+      .send({
+        lat: 12.9,
+        lng: 77.5,
+        source: "offline-replay",
+        recordedAt: "2020-01-01T00:00:00.000Z",
+      });
+    expect(response.status).toBe(200);
+    expect(response.body.accepted).toBe(false);
+    expect(response.body.location).not.toEqual({ lat: 12.9, lng: 77.5 });
+  });
   it("creates, assigns, and prevents an invalid transition", async () => {
     const auth = await token("dispatcher");
     const created = await request(app)

@@ -948,6 +948,15 @@ export function createApp() {
       ),
     ),
   );
+  app.get("/api/drivers/me", permit("driver"), (req, res) => {
+    const driver = drivers.find(
+      (item) =>
+        item.userId === req.user!.id &&
+        driverForTenant(item, req.user!.organizationId),
+    );
+    if (!driver) return res.status(404).json({ error: "Driver not found" });
+    return res.json(driver);
+  });
   app.get(
     "/api/drivers/:id/locations",
     permit("admin", "dispatcher"),
@@ -987,14 +996,26 @@ export function createApp() {
             driverForTenant(item, req.user!.organizationId),
         );
         if (!driver) return res.status(404).json({ error: "Driver not found" });
-        driver.location = { lat: body.lat, lng: body.lng };
-        driver.lastSeenAt = body.recordedAt || new Date().toISOString();
+        const recordedAt = body.recordedAt || new Date().toISOString();
+        const recordedMs = new Date(recordedAt).getTime();
+        if (recordedMs > Date.now() + 120_000)
+          return res.status(400).json({ error: "Location timestamp is in the future" });
+        const currentMs = new Date(driver.lastSeenAt).getTime();
+        const isCurrent = !Number.isFinite(currentMs) || recordedMs >= currentMs;
+        if (isCurrent) {
+          driver.location = { lat: body.lat, lng: body.lng };
+          driver.lastSeenAt = recordedAt;
+        }
         await persistDriverAndLocation(driver, {
+          lat: body.lat,
+          lng: body.lng,
           accuracy: body.accuracy,
           source: body.source,
-          recordedAt: driver.lastSeenAt,
+          recordedAt,
         });
-        for (const order of orders.filter((item) => item.assignedDriverId === driver.id)) {
+        for (const order of isCurrent
+          ? orders.filter((item) => item.assignedDriverId === driver.id)
+          : []) {
           const transitions = geofenceTransitions(
             order,
             driver.location,
@@ -1027,6 +1048,8 @@ export function createApp() {
           driverId: driver.id,
           location: driver.location,
           lastSeenAt: driver.lastSeenAt,
+          recordedAt,
+          accepted: isCurrent,
         });
       } catch (error) {
         next(error);

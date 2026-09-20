@@ -159,6 +159,7 @@ export const api = {
   me: () => request<User>("/api/me"),
   orders: () => request<Order[]>("/api/orders"),
   drivers: () => request<Driver[]>("/api/drivers"),
+  driverMe: () => request<Driver>("/api/drivers/me"),
   driverLocations: (id: string, limit = 100) =>
     request<Array<{ lat: number; lng: number; accuracy?: number; source: string; recordedAt: string }>>(
       `/api/drivers/${encodeURIComponent(id)}/locations?limit=${limit}`,
@@ -167,7 +168,13 @@ export const api = {
     id: string,
     data: { lat: number; lng: number; accuracy?: number; source?: string; recordedAt?: string },
   ) =>
-    request<{ driverId: string; location: { lat: number; lng: number }; lastSeenAt: string }>(
+    request<{
+      driverId: string;
+      location: { lat: number; lng: number };
+      lastSeenAt: string;
+      recordedAt?: string;
+      accepted?: boolean;
+    }>(
       `/api/drivers/${encodeURIComponent(id)}/location`,
       { method: "POST", body: JSON.stringify(data) },
     ),

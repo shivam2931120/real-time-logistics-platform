@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -10,15 +10,16 @@ import {
   Route,
   ScanLine,
 } from "lucide-react";
-import { io } from "socket.io-client";
 import type {
+  Driver,
   ExceptionType,
   Order,
   OrderStatus,
   User,
 } from "@routepulse/shared";
 import { api } from "../lib/api";
-import { watchLocation } from "../lib/geolocation";
+import { readCurrentLocation, watchLocation } from "../lib/geolocation";
+import { locationQueue, type QueuedLocation } from "../lib/locationQueue";
 import { LiveMap } from "../components/LiveMap";
 
 const next: Partial<Record<OrderStatus, OrderStatus>> = {
@@ -52,23 +53,97 @@ export function DriverWorkspace({
   const [issue, setIssue] = useState(false);
   const [error, setError] = useState("");
   const [scanner, setScanner] = useState(false);
+  const [driver, setDriver] = useState<Driver | null>(null);
+  const [queueSize, setQueueSize] = useState(0);
+  const [syncState, setSyncState] = useState<"live" | "offline" | "syncing" | "queued">("live");
+  const queue = useMemo(() => locationQueue(user.id), [user.id]);
   useEffect(() => {
-    if (!sharing) {
+    let cancelled = false;
+    void api
+      .driverMe()
+      .then((value) => {
+        if (!cancelled) {
+          setDriver(value);
+          setQueueSize(queue.count());
+        }
+      })
+      .catch((reason) => {
+        if (!cancelled)
+          setLocationError(reason instanceof Error ? reason.message : "Driver profile unavailable");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [queue]);
+  useEffect(() => {
+    if (!sharing || !driver) {
       setLocationError("");
       return;
     }
-    const socket = io(api.base, { auth: api.socketAuth });
     let stopped = false;
+    const send = async (reading: QueuedLocation) => {
+      if (stopped) return;
+      if (!navigator.onLine) {
+        setQueueSize(queue.enqueue(reading));
+        setSyncState("offline");
+        return;
+      }
+      try {
+        const result = await api.updateDriverLocation(driver.id, reading);
+        if (stopped) return;
+        setQueueSize(queue.count());
+        setDriver((current) =>
+          current
+            ? { ...current, location: result.location, lastSeenAt: result.lastSeenAt }
+            : current,
+        );
+        setSyncState("live");
+        setLocationError("");
+      } catch (reason) {
+        if (stopped) return;
+        setQueueSize(queue.enqueue(reading));
+        setSyncState("queued");
+        setLocationError(
+          reason instanceof Error
+            ? `${reason.message} Location is queued for retry.`
+            : "Location is queued for retry while the API is unavailable.",
+        );
+      }
+    };
+    const flush = async () => {
+      if (!navigator.onLine || stopped) return;
+      setSyncState("syncing");
+      const result = await queue.flush((reading) => api.updateDriverLocation(driver.id, reading));
+      if (stopped) return;
+      setQueueSize(result.remaining);
+      setSyncState(result.remaining ? "queued" : "live");
+    };
+    const online = () => void flush();
+    const visible = () => {
+      if (document.visibilityState !== "visible") return;
+      void readCurrentLocation()
+        .then((reading) =>
+          send({
+            ...reading,
+            source: "browser-gps-visibility",
+            recordedAt: new Date(reading.timestamp).toISOString(),
+          }),
+        )
+        .catch(() => undefined);
+    };
+    window.addEventListener("online", online);
+    document.addEventListener("visibilitychange", visible);
+    void flush();
     const watchId = watchLocation(
       (position) => {
         if (stopped) return;
-        socket.emit("location:update", {
+        void send({
           lat: position.lat,
           lng: position.lng,
           accuracy: position.accuracy,
           source: "browser-gps",
+          recordedAt: new Date(position.timestamp).toISOString(),
         });
-        setLocationError("");
       },
       (message) => {
         if (!stopped) setLocationError(message);
@@ -76,11 +151,12 @@ export function DriverWorkspace({
     );
     return () => {
       stopped = true;
+      window.removeEventListener("online", online);
+      document.removeEventListener("visibilitychange", visible);
       if (watchId !== null && navigator.geolocation)
         navigator.geolocation.clearWatch(watchId);
-      socket.close();
     };
-  }, [sharing]);
+  }, [driver, queue, sharing]);
   if (!active)
     return (
       <main className="driver-app">
@@ -120,6 +196,17 @@ export function DriverWorkspace({
             <Radio />
             {sharing ? "Location sharing on" : "Start location sharing"}
           </button>
+          {sharing && (
+            <p className="location-sync-status" role="status">
+              {syncState === "offline"
+                ? "Offline — fixes are being queued"
+                : syncState === "syncing"
+                  ? "Syncing queued fixes…"
+                  : syncState === "queued"
+                    ? `${queueSize} fix${queueSize === 1 ? "" : "es"} queued for retry`
+                    : "Live GPS synced"}
+            </p>
+          )}
           {locationError && (
             <p className="inline-notice warning">{locationError}</p>
           )}
@@ -138,7 +225,7 @@ export function DriverWorkspace({
         </div>
       </section>
       <section className="driver-map">
-        <LiveMap drivers={[]} orders={[active]} />
+        <LiveMap drivers={driver ? [driver] : []} orders={[active]} selectedDriverId={driver?.id} />
         <div className="next-stop">
           <span>Next stop</span>
           <strong>{active.dropoff.label}</strong>

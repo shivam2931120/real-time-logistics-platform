@@ -394,7 +394,7 @@ export async function persistDriver(driver: Driver) {
 }
 export async function persistDriverLocation(
   driver: Driver,
-  reading: { accuracy?: number; source?: string; recordedAt?: string } = {},
+  reading: { lat?: number; lng?: number; accuracy?: number; source?: string; recordedAt?: string } = {},
 ) {
   if (!dbEnabled || !pool || driver.userId.startsWith("demo_")) return;
   await pool.query(
@@ -406,8 +406,8 @@ export async function persistDriverLocation(
           demoOrganizationId,
       ),
       asUuid(driver.id),
-      driver.location.lat,
-      driver.location.lng,
+      reading.lat ?? driver.location.lat,
+      reading.lng ?? driver.location.lng,
       reading.accuracy ?? null,
       reading.source || "gps",
       reading.recordedAt || driver.lastSeenAt,
@@ -416,7 +416,7 @@ export async function persistDriverLocation(
 }
 export async function persistDriverAndLocation(
   driver: Driver,
-  reading: { accuracy?: number; source?: string; recordedAt?: string } = {},
+  reading: { lat?: number; lng?: number; accuracy?: number; source?: string; recordedAt?: string } = {},
 ) {
   if (!dbEnabled || !pool || driver.userId.startsWith("demo_")) return;
   const client = await pool.connect();
@@ -432,8 +432,8 @@ export async function persistDriverAndLocation(
             demoOrganizationId,
         ),
         asUuid(driver.id),
-        driver.location.lat,
-        driver.location.lng,
+          reading.lat ?? driver.location.lat,
+          reading.lng ?? driver.location.lng,
         reading.accuracy ?? null,
         reading.source || "gps",
         reading.recordedAt || driver.lastSeenAt,
