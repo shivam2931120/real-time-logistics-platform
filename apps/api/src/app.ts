@@ -97,6 +97,7 @@ import {
 import { reconcilePayments } from "./services/reconciliation.js";
 import { operationalAlerts } from "./services/operationalAlerts.js";
 import { validateServiceArea } from "./services/territories.js";
+import { listSlaTasks, updateSlaTask } from "./services/slaInbox.js";
 import {
   importSettlementCsv,
   listSettlementRows,
@@ -1489,6 +1490,27 @@ export function createApp() {
         return res.json(alerts.filter((alert) => alert.driverId === driver?.id));
       }
       return res.json(alerts);
+    } catch (error) {
+      return next(error);
+    }
+  });
+  app.get("/api/sla/inbox", permit("admin", "dispatcher"), async (req, res, next) => {
+    try {
+      const status = typeof req.query.status === "string" ? z.enum(["open", "acknowledged", "resolved"]).parse(req.query.status) : undefined;
+      return res.json(await listSlaTasks(req.user!.organizationId, status));
+    } catch (error) {
+      return next(error);
+    }
+  });
+  app.patch("/api/sla/inbox/:id", permit("admin", "dispatcher"), async (req, res, next) => {
+    try {
+      const input = z.object({ status: z.enum(["open", "acknowledged", "resolved"]), assigneeId: z.string().optional() }).parse(req.body);
+      const taskId = String(req.params.id);
+      const known = (await listSlaTasks(req.user!.organizationId)).find((task) => task.id === taskId);
+      if (!known) return res.status(404).json({ error: "SLA task not found" });
+      const state = await updateSlaTask(req.user!.organizationId, taskId, input.status, input.assigneeId);
+      await audit(req.user!, "sla.task_updated", "sla_task", taskId, input);
+      return res.json({ ...known, ...state });
     } catch (error) {
       return next(error);
     }

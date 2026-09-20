@@ -26,6 +26,7 @@ import type {
   RoutePlan,
   RouteRun,
   ServiceTerritory,
+  SlaTask,
   SupportMessage,
   SupportTicket,
   TrackingSnapshot,
@@ -274,6 +275,9 @@ export const api = {
     }),
   exceptions: () => request<DeliveryException[]>("/api/exceptions"),
   operationalAlerts: () => request<OperationalAlert[]>("/api/alerts/operations"),
+  slaInbox: (status?: SlaTask["status"]) => request<SlaTask[]>(`/api/sla/inbox${status ? `?status=${status}` : ""}`),
+  updateSlaTask: (id: string, status: SlaTask["status"], assigneeId?: string) =>
+    request<SlaTask>(`/api/sla/inbox/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ status, assigneeId }) }),
   createException: (
     orderId: string,
     type: ExceptionType,

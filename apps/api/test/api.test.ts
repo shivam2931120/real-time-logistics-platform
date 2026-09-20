@@ -543,8 +543,31 @@ describe("API", () => {
         await request(app)
           .get("/api/exceptions")
           .set("authorization", `Bearer ${auth}`)
-      ).body,
+    ).body,
     ).toHaveLength(1);
+  });
+  it("lists and updates SLA inbox tasks", async () => {
+    const auth = await token("dispatcher");
+    const created = await request(app)
+      .post("/api/orders/ord_1001/exceptions")
+      .set("authorization", `Bearer ${auth}`)
+      .send({ type: "delay", description: "SLA ownership test" });
+    expect(created.status).toBe(201);
+
+    const listed = await request(app)
+      .get("/api/sla/inbox?status=open")
+      .set("authorization", `Bearer ${auth}`);
+    expect(listed.status).toBe(200);
+    const task = listed.body.find((item: { id: string }) => item.id === `exception:${created.body.id}`);
+    expect(task).toEqual(expect.objectContaining({ status: "open", type: "exception" }));
+
+    const acknowledged = await request(app)
+      .patch(`/api/sla/inbox/${task.id}`)
+      .set("authorization", `Bearer ${auth}`)
+      .send({ status: "acknowledged" });
+    expect(acknowledged.status).toBe(200);
+    expect(acknowledged.body.status).toBe("acknowledged");
+    expect(acknowledged.body.id).toBe(task.id);
   });
   it("records notifications, admin changes, settings, and audit events", async () => {
     const dispatcher = await token("dispatcher");

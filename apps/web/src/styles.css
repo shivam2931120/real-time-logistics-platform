@@ -3573,6 +3573,15 @@ td {
   font-size: 0.65rem;
   text-transform: uppercase;
 }
+.sla-actions {
+  display: flex;
+  flex: none;
+  gap: 6px;
+  align-items: center;
+}
+.sla-actions .button {
+  white-space: nowrap;
+}
 .integration-row .button {
   flex: none;
 }

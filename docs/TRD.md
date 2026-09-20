@@ -95,6 +95,8 @@ All private endpoints require `Authorization: Bearer <JWT>`. Demo login accepts 
 | GET/POST/PATCH/DELETE | `/api/customer/addresses`, `/api/customer/addresses/:id` | customer owner | private saved destinations and delivery preferences |
 | GET/POST/PATCH/DELETE | `/api/territories`, `/api/territories/:id` | operations/admin | manage tenant service polygons |
 | POST      | `/api/territories/validate`                         | authenticated | validate a coordinate against active service polygons |
+| GET       | `/api/sla/inbox?status=open|acknowledged|resolved`  | admin/dispatcher | derived SLA work queue for late deliveries, alerts, exceptions, priority support and maintenance |
+| PATCH     | `/api/sla/inbox/:id`                                | admin/dispatcher | acknowledge or resolve an SLA task with an audit event |
 | GET       | `/health`                                           | public                           | liveness and adapter modes                    |
 
 Socket client events: `location:update`, `order:subscribe`. Server events: `driver:location`, `order:updated`, `notification:updated`. Tenant room membership is derived from authenticated claims, never supplied tenant IDs.
@@ -106,6 +108,7 @@ Socket client events: `location:update`, `order:subscribe`. Server events: `driv
 - Payment callbacks are idempotent on provider event/reference and payment/order writes are committed atomically when PostgreSQL is enabled.
 - Location is high-volume operational state; the latest driver point and material arrival events are durable.
 - The database is authoritative; queue insertion follows durable job/outbox creation in the production repository.
+- SLA inbox tasks are derived from tenant-scoped operational state. Acknowledgement and resolution state is persisted in `sla_task_states` when PostgreSQL is enabled and remains process-local until that additive table is migrated.
 
 ## 6. Optimization
 

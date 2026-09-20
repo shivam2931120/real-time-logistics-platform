@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, CheckCircle2, Clock3, RefreshCw } from "lucide-react";
-import type { DeliveryException, OperationalAlert, Order } from "@routepulse/shared";
+import type { DeliveryException, OperationalAlert, Order, SlaTask } from "@routepulse/shared";
 import { api } from "../lib/api";
 
 export function ExceptionsPage({ orders }: { orders: Order[] }) {
   const [items, setItems] = useState<DeliveryException[]>([]);
   const [alerts, setAlerts] = useState<OperationalAlert[]>([]);
+  const [slaTasks, setSlaTasks] = useState<SlaTask[]>([]);
   const [filter, setFilter] = useState<"open" | "resolved" | "all">("open");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -14,12 +15,14 @@ export function ExceptionsPage({ orders }: { orders: Order[] }) {
     setLoading(true);
     setError("");
     try {
-      const [exceptionResult, alertResult] = await Promise.all([
+      const [exceptionResult, alertResult, slaResult] = await Promise.all([
         api.exceptions(),
         api.operationalAlerts(),
+        api.slaInbox(),
       ]);
       setItems(exceptionResult);
       setAlerts(alertResult);
+      setSlaTasks(slaResult);
     } catch (reason) {
       setError(
         reason instanceof Error ? reason.message : "Unable to load exceptions",
@@ -51,6 +54,14 @@ export function ExceptionsPage({ orders }: { orders: Order[] }) {
       );
     } finally {
       setResolving("");
+    }
+  };
+  const updateTask = async (task: SlaTask, status: SlaTask["status"]) => {
+    try {
+      const updated = await api.updateSlaTask(task.id, status);
+      setSlaTasks((current) => current.map((item) => item.id === updated.id ? updated : item));
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Unable to update SLA task");
     }
   };
   return (
@@ -111,6 +122,24 @@ export function ExceptionsPage({ orders }: { orders: Order[] }) {
                 <small>{alert.type.replaceAll("_", " ")} · threshold {alert.threshold} {alert.unit}</small>
               </div>
               <span className={`reconciliation-status ${alert.severity === "critical" ? "has-mismatch" : "missing"}`}>{alert.severity}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      {slaTasks.length > 0 && (
+        <div className="panel operational-alerts sla-inbox">
+          <div className="panel-head">
+            <div><span className="eyebrow">SLA inbox</span><h3>{slaTasks.filter((task) => task.status !== "resolved").length} tasks need ownership</h3></div>
+            <Clock3 />
+          </div>
+          {slaTasks.filter((task) => task.status !== "resolved").slice(0, 10).map((task) => (
+            <div className="operational-alert" key={task.id}>
+              <span className={`exception-icon ${task.severity}`}><Clock3 /></span>
+              <div><strong>{task.title}</strong><p>{task.description}</p><small>Due {new Date(task.dueAt).toLocaleString()} · {task.type.replaceAll("_", " ")}</small></div>
+              <span className="sla-actions">
+                {task.status === "open" && <button className="button ghost" onClick={() => void updateTask(task, "acknowledged")}>Acknowledge</button>}
+                {task.status === "acknowledged" && <button className="button ghost" onClick={() => void updateTask(task, "resolved")}>Resolve</button>}
+              </span>
             </div>
           ))}
         </div>

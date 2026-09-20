@@ -340,6 +340,24 @@ export interface OperationalAlert {
   unit: "km" | "minutes";
   createdAt: string;
 }
+export type SlaTaskStatus = "open" | "acknowledged" | "resolved";
+export type SlaTaskType = "late_delivery" | "operational_alert" | "exception" | "support_ticket" | "maintenance";
+export interface SlaTask {
+  id: string;
+  organizationId: string;
+  type: SlaTaskType;
+  title: string;
+  description: string;
+  severity: OperationalAlertSeverity;
+  dueAt: string;
+  status: SlaTaskStatus;
+  orderId?: string;
+  driverId?: string;
+  ticketId?: string;
+  assigneeId?: string;
+  createdAt: string;
+  updatedAt: string;
+}
 export interface TrackingSnapshot {
   trackingCode: string;
   customerName: string;

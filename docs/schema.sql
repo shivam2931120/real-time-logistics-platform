@@ -71,3 +71,5 @@ CREATE TABLE IF NOT EXISTS customer_addresses (id uuid PRIMARY KEY, organization
 CREATE INDEX IF NOT EXISTS customer_addresses_user_idx ON customer_addresses(organization_id,user_id,updated_at DESC);
 CREATE TABLE IF NOT EXISTS service_territories (id uuid PRIMARY KEY, organization_id uuid NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, name text NOT NULL, polygon jsonb NOT NULL, active boolean NOT NULL DEFAULT true, created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now());
 CREATE INDEX IF NOT EXISTS service_territories_org_idx ON service_territories(organization_id,active,updated_at DESC);
+CREATE TABLE IF NOT EXISTS sla_task_states (organization_id uuid NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, task_id text NOT NULL, status text NOT NULL CHECK(status IN ('open','acknowledged','resolved')), assignee_id uuid REFERENCES users(id) ON DELETE SET NULL, updated_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY(organization_id,task_id));
+CREATE INDEX IF NOT EXISTS sla_task_states_status_idx ON sla_task_states(organization_id,status,updated_at DESC);
