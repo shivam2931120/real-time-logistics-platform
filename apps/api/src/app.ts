@@ -71,6 +71,15 @@ import { configurationStatus, runtimeEnvironment } from "./config/runtime.js";
 import { roadRoute, searchPlaces } from "./services/mapGateway.js";
 import { demoAuthEnabled, demoUserFromCredentials } from "./services/demoAuth.js";
 import { geofenceTransitions } from "./services/geofence.js";
+import {
+  createIntegrationApiKey,
+  createIntegrationWebhook,
+  disableIntegrationWebhook,
+  dispatchIntegrationEvent,
+  listIntegrationApiKeys,
+  listIntegrationWebhooks,
+  revokeIntegrationApiKey,
+} from "./services/integrations.js";
 
 const coordinate = z.object({
   label: z.string().min(3).max(160),
@@ -194,6 +203,12 @@ const audit = async (
   };
   auditRecords.unshift(item);
   await persistAudit(item);
+  void dispatchIntegrationEvent(user.organizationId, action, {
+    resourceType,
+    resourceId,
+    metadata,
+    actorId: user.id,
+  });
   return item;
 };
 const notifySafely = async (order: Order, template: string) => {
@@ -1713,6 +1728,82 @@ export function createApp() {
         .slice(0, 200),
     ),
   );
+  app.get("/api/admin/integrations/api-keys", permit("admin"), async (req, res, next) => {
+    try {
+      return res.json(await listIntegrationApiKeys(req.user!.organizationId));
+    } catch (error) {
+      next(error);
+    }
+  });
+  app.post("/api/admin/integrations/api-keys", permit("admin"), async (req, res, next) => {
+    try {
+      const body = z.object({ name: z.string().trim().min(2).max(80) }).parse(req.body);
+      const created = await createIntegrationApiKey({
+        organizationId: req.user!.organizationId,
+        createdBy: req.user!.id,
+        name: body.name,
+      });
+      await audit(req.user!, "integration.api_key_created", "integration_api_key", created.id, {
+        name: created.name,
+        prefix: created.prefix,
+      });
+      return res.status(201).json(created);
+    } catch (error) {
+      next(error);
+    }
+  });
+  app.delete("/api/admin/integrations/api-keys/:id", permit("admin"), async (req, res, next) => {
+    try {
+      const id = String(req.params.id);
+      const revoked = await revokeIntegrationApiKey(req.user!.organizationId, id);
+      if (!revoked) return res.status(404).json({ error: "Integration API key not found" });
+      await audit(req.user!, "integration.api_key_revoked", "integration_api_key", id);
+      return res.status(204).send();
+    } catch (error) {
+      next(error);
+    }
+  });
+  app.get("/api/admin/integrations/webhooks", permit("admin"), async (req, res, next) => {
+    try {
+      return res.json(await listIntegrationWebhooks(req.user!.organizationId));
+    } catch (error) {
+      next(error);
+    }
+  });
+  app.post("/api/admin/integrations/webhooks", permit("admin"), async (req, res, next) => {
+    try {
+      const body = z
+        .object({
+          url: z.string().url().refine((value) => ["http:", "https:"].includes(new URL(value).protocol), "Webhook URL must use HTTP or HTTPS"),
+          events: z.array(z.string().trim().min(3).max(80)).min(1).max(30).default(["*"]),
+        })
+        .parse(req.body);
+      const created = await createIntegrationWebhook({
+        organizationId: req.user!.organizationId,
+        createdBy: req.user!.id,
+        url: body.url,
+        events: body.events,
+      });
+      await audit(req.user!, "integration.webhook_created", "integration_webhook", created.id, {
+        url: created.url,
+        events: created.events,
+      });
+      return res.status(201).json(created);
+    } catch (error) {
+      next(error);
+    }
+  });
+  app.delete("/api/admin/integrations/webhooks/:id", permit("admin"), async (req, res, next) => {
+    try {
+      const id = String(req.params.id);
+      const disabled = await disableIntegrationWebhook(req.user!.organizationId, id);
+      if (!disabled) return res.status(404).json({ error: "Integration webhook not found" });
+      await audit(req.user!, "integration.webhook_disabled", "integration_webhook", id);
+      return res.status(204).send();
+    } catch (error) {
+      next(error);
+    }
+  });
   app.get("/api/organization", (req, res) => {
     const settings = settingsForOrganization(req.user!.organizationId);
     return res.json({
@@ -1756,6 +1847,52 @@ export function createApp() {
     } catch (e) {
       next(e);
     }
+  });
+  app.get("/api/billing/summary", permit("admin", "dispatcher"), (req, res) => {
+    const now = new Date();
+    const periodStartDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+    const periodStart = periodStartDate.toISOString();
+    const tenantOrders = store
+      .listOrders(req.user!.organizationId)
+      .filter((order) => order.createdAt >= periodStart);
+    const capturedPayments = tenantOrders
+      .filter((order) => order.paymentStatus === "paid")
+      .reduce((total, order) => total + order.amount, 0);
+    const outstandingAmount = tenantOrders
+      .filter((order) => order.paymentStatus === "unpaid" || order.paymentStatus === "pending")
+      .reduce((total, order) => total + order.amount, 0);
+    const failedPayments = tenantOrders.filter((order) => order.paymentStatus === "failed").length;
+    return res.json({
+      periodStart,
+      currency: tenantOrders[0]?.currency || "INR",
+      orderCount: tenantOrders.length,
+      capturedPayments,
+      outstandingAmount,
+      failedPayments,
+      paymentCollectionRate: tenantOrders.length
+        ? Math.round((tenantOrders.filter((order) => order.paymentStatus === "paid").length / tenantOrders.length) * 100)
+        : 0,
+      provider: paymentMode(),
+    });
+  });
+  app.get("/api/reports/billing.csv", permit("admin", "dispatcher"), (req, res) => {
+    const tenantOrders = store.listOrders(req.user!.organizationId);
+    const rows = [
+      ["Tracking code", "Customer", "Amount", "Currency", "Payment status", "Created at", "Delivered at"],
+      ...tenantOrders.map((order) => [
+        order.trackingCode,
+        order.customerName,
+        order.amount.toFixed(2),
+        order.currency,
+        order.paymentStatus,
+        order.createdAt,
+        order.deliveredAt || "",
+      ]),
+    ];
+    res
+      .type("text/csv")
+      .setHeader("content-disposition", 'attachment; filename="routepulse-billing.csv"')
+      .send(rows.map(csvRow).join("\n"));
   });
   app.post(
     "/api/routes/optimize",

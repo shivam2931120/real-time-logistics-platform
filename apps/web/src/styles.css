@@ -3396,6 +3396,87 @@ td {
 .success-note {
   color: #4ade80;
 }
+.admin-integrations {
+  display: grid;
+  gap: 12px;
+}
+.billing-summary {
+  padding-bottom: 16px;
+}
+.billing-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  padding: 0 18px;
+}
+.billing-metrics span {
+  display: grid;
+  gap: 3px;
+  padding: 12px;
+  background: #111821;
+  border: 1px solid #253142;
+  border-radius: 3px;
+}
+.billing-metrics strong {
+  color: #f2f7fb;
+  font-size: 1.05rem;
+  font-family: "Space Grotesk", sans-serif;
+}
+.billing-metrics small,
+.integration-row small {
+  color: #77869a;
+  font-size: 0.67rem;
+}
+.integration-card {
+  overflow: hidden;
+}
+.inline-form {
+  display: flex;
+  gap: 8px;
+  padding: 0 18px 14px;
+}
+.inline-form input {
+  min-width: 0;
+  flex: 1;
+  padding: 10px 12px;
+}
+.secret-reveal {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 18px 12px;
+  padding: 10px 12px;
+  border: 1px solid #155e75;
+  background: #082f3a;
+  color: #67e8f9;
+  overflow: auto;
+}
+.secret-reveal code {
+  flex: 1;
+  font-size: 0.7rem;
+  white-space: nowrap;
+}
+.integration-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 18px;
+  border-top: 1px solid #253142;
+}
+.integration-row > span {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+.integration-row strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.integration-row .button {
+  flex: none;
+}
 .audit-list > div:not(.panel-head):not(.empty-state) {
   display: grid;
   grid-template-columns: 190px 1fr auto;
@@ -5525,6 +5606,19 @@ textarea {
   .team-row select {
     grid-column: 2;
     width: 100%;
+  }
+  .billing-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .inline-form {
+    flex-direction: column;
+  }
+  .inline-form .button {
+    width: 100%;
+  }
+  .secret-reveal {
+    align-items: stretch;
+    flex-direction: column;
   }
   .audit-list > div:not(.panel-head):not(.empty-state) {
     grid-template-columns: 1fr;

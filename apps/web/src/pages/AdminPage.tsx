@@ -1,7 +1,10 @@
 import { useEffect, useState } from "react";
-import { Building2, Save, ShieldCheck, UserCog } from "lucide-react";
+import { Building2, Copy, KeyRound, Plug, Save, ShieldCheck, UserCog, Webhook } from "lucide-react";
 import type {
   AuditRecord,
+  BillingSummary,
+  IntegrationApiKeySummary,
+  IntegrationWebhookSummary,
   OrganizationSettings,
   Role,
   User,
@@ -12,7 +15,13 @@ export function AdminPage() {
   const [users, setUsers] = useState<User[]>([]);
   const [audit, setAudit] = useState<AuditRecord[]>([]);
   const [settings, setSettings] = useState<OrganizationSettings | null>(null);
-  const [tab, setTab] = useState<"team" | "settings" | "audit">("team");
+  const [tab, setTab] = useState<"team" | "settings" | "audit" | "integrations">("team");
+  const [billing, setBilling] = useState<BillingSummary | null>(null);
+  const [apiKeys, setApiKeys] = useState<IntegrationApiKeySummary[]>([]);
+  const [webhooks, setWebhooks] = useState<IntegrationWebhookSummary[]>([]);
+  const [keyName, setKeyName] = useState("Operations API");
+  const [webhookUrl, setWebhookUrl] = useState("");
+  const [revealedSecret, setRevealedSecret] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -21,14 +30,20 @@ export function AdminPage() {
     setLoading(true);
     setError("");
     try {
-      const [team, records, configuration] = await Promise.all([
+      const [team, records, configuration, billingSummary, keys, hooks] = await Promise.all([
         api.adminUsers(),
         api.audit(),
         api.settings(),
+        api.billingSummary(),
+        api.integrationApiKeys(),
+        api.integrationWebhooks(),
       ]);
       setUsers(team);
       setAudit(records);
       setSettings(configuration);
+      setBilling(billingSummary);
+      setApiKeys(keys);
+      setWebhooks(hooks);
     } catch (reason) {
       setError(
         reason instanceof Error
@@ -37,6 +52,64 @@ export function AdminPage() {
       );
     } finally {
       setLoading(false);
+    }
+  };
+  const createKey = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (busy || !keyName.trim()) return;
+    setBusy(true);
+    setError("");
+    try {
+      const created = await api.createIntegrationApiKey(keyName.trim());
+      setRevealedSecret(created.key);
+      setMessage("API key created. Copy it now; it will not be shown again.");
+      setKeyName("Operations API");
+      await load();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Unable to create API key");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const createWebhook = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (busy || !webhookUrl.trim()) return;
+    setBusy(true);
+    setError("");
+    try {
+      const created = await api.createIntegrationWebhook(webhookUrl.trim(), ["*"]);
+      setRevealedSecret(created.secret);
+      setMessage("Webhook created. Store the signing secret securely.");
+      setWebhookUrl("");
+      await load();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Unable to create webhook");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const revokeKey = async (id: string) => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await api.revokeIntegrationApiKey(id);
+      await load();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Unable to revoke API key");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const disableWebhook = async (id: string) => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await api.disableIntegrationWebhook(id);
+      await load();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Unable to disable webhook");
+    } finally {
+      setBusy(false);
     }
   };
   useEffect(() => {
@@ -94,7 +167,7 @@ export function AdminPage() {
         </p>
       )}
       <div className="admin-tabs">
-        {(["team", "settings", "audit"] as const).map((value) => (
+        {(["team", "settings", "integrations", "audit"] as const).map((value) => (
           <button
             className={tab === value ? "active" : ""}
             onClick={() => setTab(value)}
@@ -243,6 +316,44 @@ export function AdminPage() {
               <strong>No audit events yet</strong>
             </div>
           )}
+        </div>
+      )}
+      {tab === "integrations" && (
+        <div className="admin-integrations">
+          <div className="panel billing-summary">
+            <div className="panel-head">
+              <div>
+                <span className="eyebrow">Billing operations</span>
+                <h3>Current month</h3>
+              </div>
+              <Plug />
+            </div>
+            {billing && (
+              <div className="billing-metrics">
+                <span><strong>{billing.orderCount}</strong><small>orders</small></span>
+                <span><strong>₹{billing.capturedPayments.toLocaleString("en-IN")}</strong><small>captured</small></span>
+                <span><strong>₹{billing.outstandingAmount.toLocaleString("en-IN")}</strong><small>outstanding</small></span>
+                <span><strong>{billing.paymentCollectionRate}%</strong><small>collection rate</small></span>
+              </div>
+            )}
+          </div>
+          <div className="panel integration-card">
+            <div className="panel-head"><div><span className="eyebrow">Server-to-server</span><h3>Integration API keys</h3></div><KeyRound /></div>
+            <form className="inline-form" onSubmit={createKey}>
+              <input value={keyName} onChange={(event) => setKeyName(event.target.value)} aria-label="API key name" />
+              <button className="button primary" disabled={busy}>Create key</button>
+            </form>
+            {revealedSecret && <div className="secret-reveal"><code>{revealedSecret}</code><button className="button ghost" onClick={() => void navigator.clipboard?.writeText(revealedSecret)}><Copy /> Copy</button></div>}
+            {apiKeys.map((key) => <div className="integration-row" key={key.id}><span><strong>{key.name}</strong><small>{key.prefix} · {key.revokedAt ? "revoked" : key.lastUsedAt ? `used ${new Date(key.lastUsedAt).toLocaleDateString()}` : "never used"}</small></span>{!key.revokedAt && <button className="button ghost" onClick={() => void revokeKey(key.id)} disabled={busy}>Revoke</button>}</div>)}
+          </div>
+          <div className="panel integration-card">
+            <div className="panel-head"><div><span className="eyebrow">Outbound events</span><h3>Webhooks</h3></div><Webhook /></div>
+            <form className="inline-form" onSubmit={createWebhook}>
+              <input value={webhookUrl} onChange={(event) => setWebhookUrl(event.target.value)} placeholder="https://example.com/routepulse" aria-label="Webhook URL" />
+              <button className="button primary" disabled={busy}>Add webhook</button>
+            </form>
+            {webhooks.map((hook) => <div className="integration-row" key={hook.id}><span><strong>{hook.url}</strong><small>{hook.events.join(", ")} · {hook.active ? "active" : "disabled"}</small></span>{hook.active && <button className="button ghost" onClick={() => void disableWebhook(hook.id)} disabled={busy}>Disable</button>}</div>)}
+          </div>
         </div>
       )}
     </section>

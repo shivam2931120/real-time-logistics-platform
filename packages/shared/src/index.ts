@@ -179,6 +179,32 @@ export interface OrganizationSummary {
   timezone: string;
   clerkOrganizationId?: string;
 }
+export interface IntegrationApiKeySummary {
+  id: string;
+  name: string;
+  prefix: string;
+  createdAt: string;
+  lastUsedAt?: string;
+  revokedAt?: string;
+}
+export interface IntegrationWebhookSummary {
+  id: string;
+  url: string;
+  events: string[];
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+export interface BillingSummary {
+  periodStart: string;
+  currency: string;
+  orderCount: number;
+  capturedPayments: number;
+  outstandingAmount: number;
+  failedPayments: number;
+  paymentCollectionRate: number;
+  provider: string;
+}
 export interface TrackingSnapshot {
   trackingCode: string;
   customerName: string;

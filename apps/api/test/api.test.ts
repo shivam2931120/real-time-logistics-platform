@@ -386,8 +386,67 @@ describe("API", () => {
         await request(app)
           .get("/api/admin/audit")
           .set("authorization", `Bearer ${admin}`)
-      ).body.length,
+    ).body.length,
     ).toBeGreaterThan(0);
+  });
+  it("supports tenant-scoped integration keys, webhooks, and billing summaries", async () => {
+    const admin = await token("admin");
+    const billing = await request(app)
+      .get("/api/billing/summary")
+      .set("authorization", `Bearer ${admin}`);
+    expect(billing.status).toBe(200);
+    expect(billing.body).toEqual(
+      expect.objectContaining({
+        orderCount: expect.any(Number),
+        capturedPayments: expect.any(Number),
+        paymentCollectionRate: expect.any(Number),
+      }),
+    );
+    const created = await request(app)
+      .post("/api/admin/integrations/api-keys")
+      .set("authorization", `Bearer ${admin}`)
+      .send({ name: "Test reporting key" });
+    expect(created.status).toBe(201);
+    expect(created.body.key).toMatch(/^rp_live_/);
+    const keyAccess = await request(app)
+      .get("/api/organization")
+      .set("x-routepulse-api-key", created.body.key);
+    expect(keyAccess.status).toBe(200);
+    expect(keyAccess.body.organizationId).toBe("org_demo");
+    const listed = await request(app)
+      .get("/api/admin/integrations/api-keys")
+      .set("authorization", `Bearer ${admin}`);
+    expect(listed.status).toBe(200);
+    expect(listed.body).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: created.body.id })]),
+    );
+    const revoked = await request(app)
+      .delete(`/api/admin/integrations/api-keys/${created.body.id}`)
+      .set("authorization", `Bearer ${admin}`);
+    expect(revoked.status).toBe(204);
+    expect(
+      (
+        await request(app)
+          .get("/api/organization")
+          .set("x-routepulse-api-key", created.body.key)
+      ).status,
+    ).toBe(401);
+    const webhook = await request(app)
+      .post("/api/admin/integrations/webhooks")
+      .set("authorization", `Bearer ${admin}`)
+      .send({ url: "http://127.0.0.1:1/routepulse", events: ["order.created"] });
+    expect(webhook.status).toBe(201);
+    expect(webhook.body.secret).toMatch(/^whsec_/);
+    const disabled = await request(app)
+      .delete(`/api/admin/integrations/webhooks/${webhook.body.id}`)
+      .set("authorization", `Bearer ${admin}`);
+    expect(disabled.status).toBe(204);
+    const hooks = await request(app)
+      .get("/api/admin/integrations/webhooks")
+      .set("authorization", `Bearer ${admin}`);
+    expect(hooks.body).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: webhook.body.id, active: false })]),
+    );
   });
   it("supports customer self-service reschedule and cancellation", async () => {
     const customer = await token("customer");

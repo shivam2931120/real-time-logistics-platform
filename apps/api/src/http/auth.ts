@@ -5,12 +5,24 @@ import type { Role, User } from '@routepulse/shared';
 import { users } from '../domain/store.js';
 import { resolveClerkUser } from '../services/clerkIdentity.js';
 import { demoAuthEnabled, demoUserForRole } from '../services/demoAuth.js';
+import { resolveIntegrationApiKey } from '../services/integrations.js';
 
 const secret = () => process.env.JWT_SECRET || 'routepulse-local-development-only';
 export const issueToken = (user: User, demo = false) => jwt.sign({ sub: user.id, org: user.organizationId, role: user.role, ...(demo ? { demo: true } : {}) }, secret(), { expiresIn: '8h', issuer: 'routepulse', audience: 'routepulse-web' });
 export const issueDemoToken = (user: User) => issueToken(user, true);
 declare global { namespace Express { interface Request { user?: User } } }
 export function authenticate(req: Request, res: Response, next: NextFunction) {
+  const integrationKey = req.header('x-routepulse-api-key');
+  if (integrationKey) {
+    void resolveIntegrationApiKey(integrationKey)
+      .then((user) => {
+        if (!user) return res.status(401).json({ error: 'Invalid integration API key' });
+        req.user = user;
+        next();
+      })
+      .catch(() => res.status(401).json({ error: 'Invalid integration API key' }));
+    return;
+  }
   const raw=req.header('authorization')?.replace(/^Bearer /,''); if(!raw) return res.status(401).json({error:'Authentication required'});
   if (process.env.AUTH_MODE === 'clerk' && demoAuthEnabled()) {
     try {

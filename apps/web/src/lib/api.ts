@@ -10,6 +10,9 @@ import type {
   OrderStatus,
   OrganizationSettings,
   OrganizationSummary,
+  BillingSummary,
+  IntegrationApiKeySummary,
+  IntegrationWebhookSummary,
   ParcelScan,
   ParcelScanStage,
   Role,
@@ -272,6 +275,23 @@ export const api = {
       body: JSON.stringify({ role }),
     }),
   audit: () => request<AuditRecord[]>("/api/admin/audit"),
+  billingSummary: () => request<BillingSummary>("/api/billing/summary"),
+  integrationApiKeys: () => request<IntegrationApiKeySummary[]>("/api/admin/integrations/api-keys"),
+  createIntegrationApiKey: (name: string) =>
+    request<IntegrationApiKeySummary & { key: string }>("/api/admin/integrations/api-keys", {
+      method: "POST",
+      body: JSON.stringify({ name }),
+    }),
+  revokeIntegrationApiKey: (id: string) =>
+    request<void>(`/api/admin/integrations/api-keys/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  integrationWebhooks: () => request<IntegrationWebhookSummary[]>("/api/admin/integrations/webhooks"),
+  createIntegrationWebhook: (url: string, events: string[]) =>
+    request<IntegrationWebhookSummary & { secret: string }>("/api/admin/integrations/webhooks", {
+      method: "POST",
+      body: JSON.stringify({ url, events }),
+    }),
+  disableIntegrationWebhook: (id: string) =>
+    request<void>(`/api/admin/integrations/webhooks/${encodeURIComponent(id)}`, { method: "DELETE" }),
   settings: () => request<OrganizationSettings>("/api/settings"),
   updateSettings: (data: OrganizationSettings) =>
     request<OrganizationSettings>("/api/settings", {
