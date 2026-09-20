@@ -3494,6 +3494,70 @@ td {
 .audit-list small {
   color: #657387;
 }
+.forecast-section {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.65fr);
+  gap: 12px;
+}
+.forecast-chart,
+.forecast-summary {
+  min-width: 0;
+}
+.forecast-chart .panel-loading {
+  min-height: 260px;
+  display: grid;
+  place-items: center;
+  color: #77869a;
+}
+.forecast-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  padding: 0 18px 14px;
+}
+.forecast-metrics span {
+  display: grid;
+  gap: 3px;
+  padding: 10px;
+  border: 1px solid #253142;
+  background: #111821;
+}
+.forecast-metrics strong {
+  font-family: "Space Grotesk", sans-serif;
+  color: #f2f7fb;
+}
+.forecast-metrics small {
+  color: #77869a;
+  font-size: 0.64rem;
+}
+.forecast-alerts {
+  display: grid;
+  gap: 7px;
+  padding: 0 18px 18px;
+}
+.forecast-alerts p {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin: 0;
+  padding: 9px;
+  font-size: 0.7rem;
+  line-height: 1.35;
+}
+.forecast-alerts svg {
+  width: 15px;
+  flex: none;
+}
+.forecast-warning {
+  border: 1px solid #92400e;
+  color: #fbbf24;
+  background: #451a03;
+}
+.forecast-info {
+  border: 1px solid #155e75;
+  color: #67e8f9;
+  background: #082f3a;
+}
 .driver-edit {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -5609,6 +5673,12 @@ textarea {
   }
   .billing-metrics {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .forecast-section {
+    grid-template-columns: 1fr;
+  }
+  .forecast-metrics {
+    grid-template-columns: 1fr;
   }
   .inline-form {
     flex-direction: column;

@@ -71,6 +71,7 @@ import { configurationStatus, runtimeEnvironment } from "./config/runtime.js";
 import { roadRoute, searchPlaces } from "./services/mapGateway.js";
 import { demoAuthEnabled, demoUserFromCredentials } from "./services/demoAuth.js";
 import { geofenceTransitions } from "./services/geofence.js";
+import { forecastDemand } from "./services/forecast.js";
 import {
   createIntegrationApiKey,
   createIntegrationWebhook,
@@ -2078,6 +2079,32 @@ export function createApp() {
           .object({ days: z.coerce.number().int().min(7).max(90).default(7) })
           .parse(req.query);
         return res.json(store.summary(req.user!.organizationId, days));
+      } catch (error) {
+        next(error);
+      }
+    },
+  );
+  app.get(
+    "/api/analytics/forecast",
+    permit("admin", "dispatcher"),
+    (req, res, next) => {
+      try {
+        const { days } = z
+          .object({ days: z.coerce.number().int().min(7).max(30).default(14) })
+          .parse(req.query);
+        return res.json(
+          forecastDemand(
+            store.listOrders(req.user!.organizationId),
+            drivers.filter((driver) =>
+              users.some(
+                (user) =>
+                  user.id === driver.userId &&
+                  user.organizationId === req.user!.organizationId,
+              ),
+            ),
+            days,
+          ),
+        );
       } catch (error) {
         next(error);
       }

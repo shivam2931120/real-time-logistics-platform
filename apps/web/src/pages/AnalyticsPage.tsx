@@ -22,7 +22,7 @@ import {
   TrendingUp,
   Truck,
 } from "lucide-react";
-import type { AnalyticsSummary } from "@routepulse/shared";
+import type { AnalyticsSummary, ForecastSummary } from "@routepulse/shared";
 import { api } from "../lib/api";
 
 const money = (value: number) =>
@@ -44,12 +44,38 @@ export function AnalyticsPage({
   const [summary, setSummary] = useState(analytics);
   const [days, setDays] = useState(7);
   const [loading, setLoading] = useState(false);
+  const [forecast, setForecast] = useState<ForecastSummary | null>(null);
+  const [forecastLoading, setForecastLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
     if (analytics && days === 7) setSummary(analytics);
   }, [analytics, days]);
+
+  useEffect(() => {
+    if (typeof api.analyticsForecast !== "function") {
+      setForecastLoading(false);
+      return;
+    }
+    let active = true;
+    setForecastLoading(true);
+    void api
+      .analyticsForecast(14)
+      .then((result) => {
+        if (active) setForecast(result);
+      })
+      .catch(() => {
+        // Forecasting is an enhancement; keep the operational dashboard usable
+        // when a deployment has not enabled the endpoint yet.
+      })
+      .finally(() => {
+        if (active) setForecastLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const changeWindow = async (nextDays: number) => {
     setLoading(true);
@@ -266,6 +292,66 @@ export function AnalyticsPage({
           </ResponsiveContainer>
         </article>
       </div>
+
+      {(forecastLoading || forecast) && (
+        <div className="forecast-section">
+          <article className="panel forecast-chart">
+            <div className="panel-head">
+              <div>
+                <span className="eyebrow">Planning signal</span>
+                <h3>Demand forecast</h3>
+              </div>
+              {forecast && (
+                <span className={`technical-badge ${forecast.confidence === "low" ? "warning" : "success"}`}>
+                  {forecast.confidence} confidence
+                </span>
+              )}
+            </div>
+            {forecastLoading && !forecast ? (
+              <p className="panel-loading" role="status">Calculating the next 14 days…</p>
+            ) : forecast ? (
+              <ResponsiveContainer width="100%" height={260}>
+                <AreaChart data={forecast.points} margin={{ left: -18, right: 16 }}>
+                  <defs>
+                    <linearGradient id="forecast-area" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#a78bfa" stopOpacity={0.35} />
+                      <stop offset="95%" stopColor="#a78bfa" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#253142" />
+                  <XAxis dataKey="date" tickFormatter={(value) => value.slice(5)} axisLine={false} tickLine={false} />
+                  <YAxis allowDecimals={false} axisLine={false} tickLine={false} />
+                  <Tooltip />
+                  <Area type="monotone" dataKey="predictedOrders" name="Predicted orders" stroke="#a78bfa" fill="url(#forecast-area)" strokeWidth={2} />
+                </AreaChart>
+              </ResponsiveContainer>
+            ) : null}
+          </article>
+          {forecast && (
+            <article className="panel forecast-summary">
+              <div className="panel-head">
+                <div>
+                  <span className="eyebrow">Capacity planning</span>
+                  <h3>Next {forecast.horizonDays} days</h3>
+                </div>
+                <Truck />
+              </div>
+              <div className="forecast-metrics">
+                <span><strong>{forecast.predictedOrders}</strong><small>predicted orders</small></span>
+                <span><strong>{money(forecast.predictedRevenue)}</strong><small>predicted paid revenue</small></span>
+                <span><strong>{forecast.capacityPerDay}</strong><small>daily fleet capacity</small></span>
+              </div>
+              <div className="forecast-alerts">
+                {forecast.alerts.length ? forecast.alerts.map((alert) => (
+                  <p className={alert.severity === "warning" ? "forecast-warning" : "forecast-info"} key={`${alert.date}-${alert.message}`}>
+                    <AlertTriangle /> {alert.message}
+                  </p>
+                )) : <p className="forecast-info"><ShieldCheck /> Capacity is within the current fleet plan.</p>}
+              </div>
+            </article>
+          )}
+        </div>
+      )}
 
       <div className="analytics-insights">
         <article className="panel geofence-analytics">

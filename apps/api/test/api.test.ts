@@ -105,6 +105,30 @@ describe("API", () => {
       }),
     );
   });
+  it("returns an explainable tenant-scoped demand forecast", async () => {
+    const auth = await token("dispatcher");
+    const response = await request(app)
+      .get("/api/analytics/forecast?days=14")
+      .set("authorization", `Bearer ${auth}`);
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual(
+      expect.objectContaining({
+        horizonDays: 14,
+        baselineWindowDays: 28,
+        confidence: expect.stringMatching(/^(low|medium|high)$/),
+        points: expect.any(Array),
+        alerts: expect.any(Array),
+      }),
+    );
+    expect(response.body.points).toHaveLength(14);
+    expect(response.body.points[0]).toEqual(
+      expect.objectContaining({
+        date: expect.any(String),
+        predictedOrders: expect.any(Number),
+        recommendedDrivers: expect.any(Number),
+      }),
+    );
+  });
   it("returns constraint-aware route ETAs", async () => {
     const auth = await token("dispatcher");
     const response = await request(app)

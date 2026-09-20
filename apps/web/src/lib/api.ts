@@ -1,5 +1,6 @@
 import type {
   AnalyticsSummary,
+  ForecastSummary,
   AuditRecord,
   DeliveryException,
   Driver,
@@ -185,6 +186,8 @@ export const api = {
     ),
   analytics: (days = 7) =>
     request<AnalyticsSummary>(`/api/analytics/summary?days=${days}`),
+  analyticsForecast: (days = 14) =>
+    request<ForecastSummary>(`/api/analytics/forecast?days=${days}`),
   mapRoute: (
     points: Array<{ lat: number; lng: number }>,
     signal?: AbortSignal,

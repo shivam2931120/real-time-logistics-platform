@@ -317,3 +317,24 @@ export interface AnalyticsSummary {
     completionRateDelta: number;
   };
 }
+export interface ForecastPoint {
+  date: string;
+  predictedOrders: number;
+  lowerBound: number;
+  upperBound: number;
+  predictedRevenue: number;
+  recommendedDrivers: number;
+  capacityAlert: boolean;
+}
+export interface ForecastSummary {
+  generatedAt: string;
+  horizonDays: number;
+  baselineWindowDays: number;
+  historicalAveragePerDay: number;
+  predictedOrders: number;
+  predictedRevenue: number;
+  capacityPerDay: number;
+  confidence: "low" | "medium" | "high";
+  points: ForecastPoint[];
+  alerts: Array<{ date: string; message: string; severity: "info" | "warning" }>;
+}
