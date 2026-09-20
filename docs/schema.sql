@@ -38,7 +38,7 @@ CREATE TABLE IF NOT EXISTS integration_webhooks (id uuid PRIMARY KEY, organizati
 CREATE INDEX IF NOT EXISTS integration_webhooks_tenant_idx ON integration_webhooks(organization_id,active,created_at DESC);
 CREATE TABLE IF NOT EXISTS audit_events (id uuid PRIMARY KEY, organization_id uuid NOT NULL REFERENCES organizations(id), actor_id uuid REFERENCES users(id), action text NOT NULL, resource_type text NOT NULL, resource_id text NOT NULL, metadata jsonb NOT NULL DEFAULT '{}', created_at timestamptz NOT NULL DEFAULT now());
 CREATE INDEX IF NOT EXISTS audit_tenant_time_idx ON audit_events(organization_id,created_at DESC);
-ALTER TABLE organizations ADD COLUMN IF NOT EXISTS settings jsonb NOT NULL DEFAULT '{"geofenceRadiusMeters":150,"averageSpeedKph":24,"notificationsEnabled":true}'::jsonb;
+ALTER TABLE organizations ADD COLUMN IF NOT EXISTS settings jsonb NOT NULL DEFAULT '{"geofenceRadiusMeters":150,"averageSpeedKph":24,"notificationsEnabled":true,"costPerKm":12,"costPerStop":35}'::jsonb;
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_window_start timestamptz;
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_notes text;
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_pin_hash text;

@@ -214,6 +214,8 @@ export interface OrganizationSettings {
   geofenceRadiusMeters: number;
   averageSpeedKph: number;
   notificationsEnabled: boolean;
+  costPerKm?: number;
+  costPerStop?: number;
 }
 export interface OrganizationSummary {
   organizationId: string;
@@ -445,6 +447,13 @@ export interface AnalyticsSummary {
   averageDeliveryMinutes: number;
   totalRouteKm: number;
   averageRouteKm: number;
+  cost?: {
+    estimatedOperatingCost: number;
+    costPerDelivery: number;
+    costPerKm: number;
+    costPerStop: number;
+    basis: "estimated_direct_distance";
+  };
   statusCounts: Record<OrderStatus, number>;
   trend: Array<{ date: string; deliveries: number; revenue: number }>;
   geofence: {

@@ -214,6 +214,8 @@ export const organizationSettings: OrganizationSettings = {
   geofenceRadiusMeters: 150,
   averageSpeedKph: 24,
   notificationsEnabled: true,
+  costPerKm: 12,
+  costPerStop: 35,
 };
 const organizationSettingsByTenant = new Map<string, OrganizationSettings>([
   [org, organizationSettings],
@@ -377,6 +379,10 @@ export const store = {
       (total, order) => total + distanceKm(order),
       0,
     );
+    const settings = settingsForOrganization(tenant);
+    const costPerKm = Math.max(0, settings.costPerKm ?? 12);
+    const costPerStop = Math.max(0, settings.costPerStop ?? 35);
+    const estimatedOperatingCost = routeKm * costPerKm + tenantOrders.length * costPerStop;
     const activeOrders = tenantOrders.filter((order) =>
       ["assigned", "picked_up", "in_transit"].includes(order.status),
     );
@@ -549,6 +555,13 @@ export const store = {
       averageRouteKm: tenantOrders.length
         ? +(routeKm / tenantOrders.length).toFixed(1)
         : 0,
+      cost: {
+        estimatedOperatingCost: +estimatedOperatingCost.toFixed(2),
+        costPerDelivery: tenantOrders.length ? +(estimatedOperatingCost / tenantOrders.length).toFixed(2) : 0,
+        costPerKm,
+        costPerStop,
+        basis: "estimated_direct_distance",
+      },
       statusCounts: Object.fromEntries(
         [
           "pending",

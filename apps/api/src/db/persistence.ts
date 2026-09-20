@@ -737,6 +737,8 @@ export async function persistSettings(settings: OrganizationSettings) {
         geofenceRadiusMeters: settings.geofenceRadiusMeters,
         averageSpeedKph: settings.averageSpeedKph,
         notificationsEnabled: settings.notificationsEnabled,
+        costPerKm: settings.costPerKm,
+        costPerStop: settings.costPerStop,
       }),
       organizationUuid(settings.organizationId),
     ],

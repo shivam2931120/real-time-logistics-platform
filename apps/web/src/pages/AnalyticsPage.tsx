@@ -142,7 +142,7 @@ export function AnalyticsPage({
     [
       "Route distance",
       `${number(summary.totalRouteKm)} km`,
-      "Direct network kilometres",
+      "Estimated direct kilometres",
       MapPinned,
     ],
     [
@@ -150,6 +150,12 @@ export function AnalyticsPage({
       money(summary.revenue),
       `${money(summary.revenuePerDelivery)} per delivery`,
       CircleDollarSign,
+    ],
+    [
+      "Operating cost",
+      money(summary.cost?.estimatedOperatingCost ?? 0),
+      `${money(summary.cost?.costPerDelivery ?? 0)} estimated per delivery`,
+      Truck,
     ],
   ] as const;
   const statuses = Object.entries(summary.statusCounts).map(

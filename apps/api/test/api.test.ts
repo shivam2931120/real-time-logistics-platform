@@ -102,6 +102,11 @@ describe("API", () => {
         completionRate: expect.any(Number),
         paymentCollectionRate: expect.any(Number),
         totalRouteKm: expect.any(Number),
+        cost: expect.objectContaining({
+          estimatedOperatingCost: expect.any(Number),
+          costPerDelivery: expect.any(Number),
+          basis: "estimated_direct_distance",
+        }),
         geofence: expect.any(Object),
         driverPerformance: expect.any(Array),
         priorityPerformance: expect.any(Array),

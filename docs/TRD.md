@@ -91,7 +91,7 @@ All private endpoints require `Authorization: Bearer <JWT>`. Demo login accepts 
 | GET/POST  | `/api/support/tickets/:id/messages`                 | ticket participants              | Thread messages with customer-safe filtering  |
 | PATCH     | `/api/support/tickets/:id`                          | admin/dispatcher                 | Update status/assignment                      |
 | POST      | `/api/payments/demo/:orderId/confirm`               | demo only                        | simulate settlement                           |
-| GET       | `/api/analytics/summary?days=7|30|90`              | dispatcher/admin                 | SLA, route, geofence, driver, zone and period-comparison metrics |
+| GET       | `/api/analytics/summary?days=7|30|90`              | dispatcher/admin                 | SLA, route, geofence, driver, zone, period-comparison and estimated cost metrics |
 | GET       | `/api/track/:code`                                  | public                           | privacy-minimized tracking snapshot           |
 | GET/POST/PATCH/DELETE | `/api/customer/addresses`, `/api/customer/addresses/:id` | customer owner | private saved destinations and delivery preferences |
 | GET/POST/PATCH/DELETE | `/api/territories`, `/api/territories/:id` | operations/admin | manage tenant service polygons |

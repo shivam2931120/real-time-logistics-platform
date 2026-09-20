@@ -366,6 +366,30 @@ export function AdminPage() {
                   averageSpeedKph: Number(event.target.value),
                 })
               }
+              />
+          </label>
+          <label>
+            Estimated cost per km (₹)
+            <input
+              type="number"
+              min="0"
+              max="100000"
+              value={settings.costPerKm ?? 12}
+              onChange={(event) =>
+                setSettings({ ...settings, costPerKm: Number(event.target.value) })
+              }
+            />
+          </label>
+          <label>
+            Estimated cost per stop (₹)
+            <input
+              type="number"
+              min="0"
+              max="100000"
+              value={settings.costPerStop ?? 35}
+              onChange={(event) =>
+                setSettings({ ...settings, costPerStop: Number(event.target.value) })
+              }
             />
           </label>
           <label className="toggle-row">

@@ -1810,6 +1810,10 @@ export function createApp() {
           csvRow(["average_delivery_minutes", summary.averageDeliveryMinutes]),
           csvRow(["total_route_km", summary.totalRouteKm]),
           csvRow(["average_route_km", summary.averageRouteKm]),
+          csvRow(["estimated_operating_cost", summary.cost?.estimatedOperatingCost ?? 0]),
+          csvRow(["estimated_cost_per_delivery", summary.cost?.costPerDelivery ?? 0]),
+          csvRow(["estimated_cost_per_km", summary.cost?.costPerKm ?? 0]),
+          csvRow(["estimated_cost_per_stop", summary.cost?.costPerStop ?? 0]),
           csvRow(["geofence_arrivals", summary.geofence.arrivals]),
           csvRow(["geofence_departures", summary.geofence.departures]),
           csvRow([
@@ -2189,6 +2193,8 @@ export function createApp() {
           geofenceRadiusMeters: z.number().int().min(50).max(1000),
           averageSpeedKph: z.number().min(5).max(120),
           notificationsEnabled: z.boolean(),
+          costPerKm: z.number().min(0).max(100_000).optional(),
+          costPerStop: z.number().min(0).max(100_000).optional(),
         })
         .parse(req.body);
       const settings = settingsForOrganization(req.user!.organizationId);
