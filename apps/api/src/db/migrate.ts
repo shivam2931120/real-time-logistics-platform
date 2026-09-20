@@ -23,10 +23,19 @@ try {
     `ALTER TABLE organizations ADD COLUMN IF NOT EXISTS clerk_organization_id text`,
   );
   await client.query(
+    `DROP INDEX IF EXISTS organizations_clerk_id_idx`,
+  );
+  await client.query(
+    `CREATE UNIQUE INDEX organizations_clerk_id_idx ON organizations(clerk_organization_id)`,
+  );
+  await client.query(
     `ALTER TABLE users ADD COLUMN IF NOT EXISTS clerk_user_id text`,
   );
   await client.query(
-    `CREATE UNIQUE INDEX IF NOT EXISTS users_clerk_user_id_idx ON users(clerk_user_id) WHERE clerk_user_id IS NOT NULL`,
+    `DROP INDEX IF EXISTS users_clerk_user_id_idx`,
+  );
+  await client.query(
+    `CREATE UNIQUE INDEX IF NOT EXISTS users_org_clerk_user_id_idx ON users(organization_id,clerk_user_id) WHERE clerk_user_id IS NOT NULL`,
   );
   const legacyDemoEmails = [
     "admin@routepulse.demo",

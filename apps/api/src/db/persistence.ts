@@ -22,7 +22,8 @@ import {
   drivers,
   notificationRecords,
   orders,
-  organizationSettings,
+  saveOrganizationSettings,
+  settingsForOrganization,
   parcelScans,
   supportMessages,
   supportTickets,
@@ -53,8 +54,7 @@ export async function initializePersistence() {
   const preserveShowcaseFixtures =
     process.env.AUTH_MODE === "clerk" && process.env.DEMO_AUTH_ENABLED === "true";
   const userRows = await pool.query(
-    `SELECT id::text,organization_id::text,email,name,role FROM users WHERE organization_id=$1`,
-    [demoOrganizationUuid],
+    `SELECT id::text,organization_id::text,email,name,role FROM users`,
   );
   for (const row of userRows.rows) {
     const id = localId(row.id, users);
@@ -70,48 +70,37 @@ export async function initializePersistence() {
     else users.push(user);
   }
   const driverRows = await pool.query(
-    `SELECT id::text,user_id::text,status,capacity_kg,current_lat,current_lng,last_seen_at,shift_start,shift_end,vehicle_plate,maintenance_due_at,maintenance_status FROM drivers WHERE organization_id=$1`,
-    [demoOrganizationUuid],
+    `SELECT id::text,organization_id::text,user_id::text,status,capacity_kg,current_lat,current_lng,last_seen_at,shift_start,shift_end,vehicle_plate,maintenance_due_at,maintenance_status FROM drivers`,
   );
   const orderRows = await pool.query(
-    `SELECT id::text,organization_id::text,tracking_code,customer_name,customer_email,pickup,dropoff,package_weight_kg,priority,status,amount_minor,currency,payment_status,assigned_driver_id::text,delivery_window_start,delivery_notes,delivery_pin_hash,parcel_code,reschedule_count,cancelled_at,return_requested_at,return_reason,return_status,promised_at,delivered_at,created_at,updated_at FROM orders WHERE organization_id=$1 ORDER BY created_at DESC`,
-    [demoOrganizationUuid],
+    `SELECT id::text,organization_id::text,tracking_code,customer_name,customer_email,pickup,dropoff,package_weight_kg,priority,status,amount_minor,currency,payment_status,assigned_driver_id::text,delivery_window_start,delivery_notes,delivery_pin_hash,parcel_code,reschedule_count,cancelled_at,return_requested_at,return_reason,return_status,promised_at,delivered_at,created_at,updated_at FROM orders ORDER BY created_at DESC`,
   );
   const eventRows = await pool.query(
-    `SELECT id::text,order_id::text,type,message,actor_id::text,created_at FROM order_events WHERE organization_id=$1 ORDER BY created_at`,
-    [demoOrganizationUuid],
+    `SELECT id::text,organization_id::text,order_id::text,type,message,actor_id::text,created_at FROM order_events ORDER BY created_at`,
   );
   const proofRows = await pool.query(
-    `SELECT order_id::text,driver_id::text,recipient_name,signature_data,photo_data,verification_method,proof_lat,proof_lng,created_at FROM proof_of_delivery WHERE organization_id=$1`,
-    [demoOrganizationUuid],
+    `SELECT order_id::text,organization_id::text,driver_id::text,recipient_name,signature_data,photo_data,verification_method,proof_lat,proof_lng,created_at FROM proof_of_delivery`,
   );
   const exceptionRows = await pool.query(
-    `SELECT id::text,order_id::text,type,description,status,created_by::text,created_at,resolved_at,resolution FROM delivery_exceptions WHERE organization_id=$1 ORDER BY created_at DESC`,
-    [demoOrganizationUuid],
+    `SELECT id::text,organization_id::text,order_id::text,type,description,status,created_by::text,created_at,resolved_at,resolution FROM delivery_exceptions ORDER BY created_at DESC`,
   );
   const notificationRows = await pool.query(
-    `SELECT id::text,user_id::text,order_id::text,channel,title,message,status,read_at,created_at FROM notification_records WHERE organization_id=$1 ORDER BY created_at DESC LIMIT 500`,
-    [demoOrganizationUuid],
+    `SELECT id::text,organization_id::text,user_id::text,order_id::text,channel,title,message,status,read_at,created_at FROM notification_records ORDER BY created_at DESC LIMIT 500`,
   );
   const auditRows = await pool.query(
-    `SELECT id::text,actor_id::text,action,resource_type,resource_id,metadata,created_at FROM audit_events WHERE organization_id=$1 ORDER BY created_at DESC LIMIT 500`,
-    [demoOrganizationUuid],
+    `SELECT id::text,organization_id::text,actor_id::text,action,resource_type,resource_id,metadata,created_at FROM audit_events ORDER BY created_at DESC LIMIT 500`,
   );
   const settingsRow = await pool.query(
-    `SELECT name,timezone,settings FROM organizations WHERE id=$1`,
-    [demoOrganizationUuid],
+    `SELECT id::text,name,timezone,settings,clerk_organization_id FROM organizations`,
   );
   const scanRows = await pool.query(
-    `SELECT id::text,order_id::text,parcel_code,stage,scanned_by::text,scanned_at FROM parcel_scans WHERE organization_id=$1 ORDER BY scanned_at DESC`,
-    [demoOrganizationUuid],
+    `SELECT id::text,organization_id::text,order_id::text,parcel_code,stage,scanned_by::text,scanned_at FROM parcel_scans ORDER BY scanned_at DESC`,
   );
   const ticketRows = await pool.query(
-    `SELECT id::text,order_id::text,customer_id::text,subject,category,priority,status,created_by::text,assigned_to::text,created_at,updated_at FROM support_tickets WHERE organization_id=$1 ORDER BY updated_at DESC`,
-    [demoOrganizationUuid],
+    `SELECT id::text,organization_id::text,order_id::text,customer_id::text,subject,category,priority,status,created_by::text,assigned_to::text,created_at,updated_at FROM support_tickets ORDER BY updated_at DESC`,
   );
   const messageRows = await pool.query(
-    `SELECT id::text,ticket_id::text,sender_id::text,sender_role,message,internal,created_at FROM support_messages WHERE organization_id=$1 ORDER BY created_at`,
-    [demoOrganizationUuid],
+    `SELECT id::text,organization_id::text,ticket_id::text,sender_id::text,sender_role,message,internal,created_at FROM support_messages ORDER BY created_at`,
   );
   const loadedDrivers = driverRows.rows.map((row) => ({
       id: localId(row.id, drivers),
@@ -131,8 +120,20 @@ export async function initializePersistence() {
         : undefined,
       maintenanceStatus: row.maintenance_status || "ok",
     })) as Driver[];
-  if (!preserveShowcaseFixtures || loadedDrivers.length) {
-    drivers.splice(0, drivers.length, ...loadedDrivers);
+  if (!preserveShowcaseFixtures) drivers.splice(0, drivers.length, ...loadedDrivers);
+  else {
+    const loadedShowcaseDrivers = loadedDrivers.filter(
+      (driver) => users.find((user) => user.id === driver.userId)?.organizationId === demoOrganizationId,
+    );
+    const loadedTenantDrivers = loadedDrivers.filter(
+      (driver) => users.find((user) => user.id === driver.userId)?.organizationId !== demoOrganizationId,
+    );
+    const showcaseDrivers = loadedShowcaseDrivers.length
+      ? loadedShowcaseDrivers
+      : drivers.filter(
+          (driver) => users.find((user) => user.id === driver.userId)?.organizationId === demoOrganizationId,
+        );
+    drivers.splice(0, drivers.length, ...showcaseDrivers, ...loadedTenantDrivers);
   }
   const loadedOrders = orderRows.rows.map((row) => {
     const proof = proofRows.rows.find((item) => item.order_id === row.id);
@@ -195,15 +196,25 @@ export async function initializePersistence() {
         })),
     } as Order;
   });
-  if (!preserveShowcaseFixtures || loadedOrders.length) {
-    orders.splice(0, orders.length, ...loadedOrders);
+  if (!preserveShowcaseFixtures) orders.splice(0, orders.length, ...loadedOrders);
+  else {
+    const loadedShowcaseOrders = loadedOrders.filter(
+      (order) => order.organizationId === demoOrganizationId,
+    );
+    const loadedTenantOrders = loadedOrders.filter(
+      (order) => order.organizationId !== demoOrganizationId,
+    );
+    const showcaseOrders = loadedShowcaseOrders.length
+      ? loadedShowcaseOrders
+      : orders.filter((order) => order.organizationId === demoOrganizationId);
+    orders.splice(0, orders.length, ...showcaseOrders, ...loadedTenantOrders);
   }
   deliveryExceptions.splice(
     0,
     deliveryExceptions.length,
     ...(exceptionRows.rows.map((row) => ({
       id: localId(row.id, []),
-      organizationId: demoOrganizationId,
+      organizationId: organizationDomainId(row.organization_id),
       orderId: localId(row.order_id, orders),
       type: row.type,
       description: row.description,
@@ -219,7 +230,7 @@ export async function initializePersistence() {
     notificationRecords.length,
     ...(notificationRows.rows.map((row) => ({
       id: localId(row.id, []),
-      organizationId: demoOrganizationId,
+      organizationId: organizationDomainId(row.organization_id),
       userId: row.user_id ? localId(row.user_id, users) : undefined,
       orderId: row.order_id ? localId(row.order_id, orders) : undefined,
       channel: row.channel,
@@ -235,7 +246,7 @@ export async function initializePersistence() {
     auditRecords.length,
     ...(auditRows.rows.map((row) => ({
       id: localId(row.id, []),
-      organizationId: demoOrganizationId,
+      organizationId: organizationDomainId(row.organization_id),
       actorId: row.actor_id ? localId(row.actor_id, users) : undefined,
       action: row.action,
       resourceType: row.resource_type,
@@ -249,7 +260,7 @@ export async function initializePersistence() {
     parcelScans.length,
     ...(scanRows.rows.map((row) => ({
       id: localId(row.id, []),
-      organizationId: demoOrganizationId,
+      organizationId: organizationDomainId(row.organization_id),
       orderId: localId(row.order_id, orders),
       parcelCode: row.parcel_code,
       stage: row.stage,
@@ -266,7 +277,7 @@ export async function initializePersistence() {
         .find((message) => message.ticket_id === row.id);
       return {
         id: localId(row.id, []),
-        organizationId: demoOrganizationId,
+        organizationId: organizationDomainId(row.organization_id),
         orderId: row.order_id ? localId(row.order_id, orders) : undefined,
         customerId: row.customer_id
           ? localId(row.customer_id, users)
@@ -291,7 +302,7 @@ export async function initializePersistence() {
     ...(messageRows.rows.map((row) => ({
       id: localId(row.id, []),
       ticketId: localId(row.ticket_id, supportTickets),
-      organizationId: demoOrganizationId,
+      organizationId: organizationDomainId(row.organization_id),
       senderId: localId(row.sender_id, users),
       senderName: users.find(
         (user) => user.id === localId(row.sender_id, users),
@@ -302,13 +313,17 @@ export async function initializePersistence() {
       createdAt: iso(row.created_at),
     })) as SupportMessage[]),
   );
-  if (settingsRow.rows[0])
-    Object.assign(organizationSettings, {
-      organizationId: demoOrganizationId,
-      name: settingsRow.rows[0].name,
-      timezone: settingsRow.rows[0].timezone,
-      ...settingsRow.rows[0].settings,
+  for (const row of settingsRow.rows) {
+    const organizationId = organizationDomainId(row.id);
+    const settings = settingsForOrganization(organizationId);
+    Object.assign(settings, {
+      organizationId,
+      name: row.name,
+      timezone: row.timezone,
+      ...row.settings,
     });
+    saveOrganizationSettings(settings);
+  }
   console.info(
     `RoutePulse loaded ${orders.length} orders and ${drivers.length} drivers from PostgreSQL`,
   );

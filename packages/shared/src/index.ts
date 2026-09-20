@@ -173,6 +173,12 @@ export interface OrganizationSettings {
   averageSpeedKph: number;
   notificationsEnabled: boolean;
 }
+export interface OrganizationSummary {
+  organizationId: string;
+  name: string;
+  timezone: string;
+  clerkOrganizationId?: string;
+}
 export interface TrackingSnapshot {
   trackingCode: string;
   customerName: string;

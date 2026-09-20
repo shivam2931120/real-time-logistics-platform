@@ -16,14 +16,73 @@ export type ClerkUserProfile = {
   email: string;
   name: string;
   role: unknown;
+  organizationId?: string;
+  clerkOrganizationId?: string;
+  organizationName?: string;
 };
+
+export async function resolveOrganizationForClerkId(
+  clerkOrganizationId?: string,
+  organizationName?: string,
+): Promise<{ organizationId?: string; clerkOrganizationId?: string; name?: string }> {
+  if (!clerkOrganizationId) return {};
+  if (!pool)
+    return {
+      organizationId: clerkOrganizationId,
+      clerkOrganizationId,
+      name: organizationName,
+    };
+
+  const existing = await pool.query(
+    `SELECT id::text,name,clerk_organization_id
+     FROM organizations WHERE clerk_organization_id=$1 LIMIT 1`,
+    [clerkOrganizationId],
+  );
+  if (existing.rows[0]) {
+    return {
+      organizationId:
+        existing.rows[0].id === demoOrganizationUuid
+          ? demoOrganizationId
+          : existing.rows[0].id,
+      clerkOrganizationId,
+      name: existing.rows[0].name,
+    };
+  }
+
+  const inserted = await pool.query(
+    `INSERT INTO organizations(id,name,timezone,clerk_organization_id)
+     VALUES($1,$2,$3,$4)
+     ON CONFLICT(clerk_organization_id) DO UPDATE SET name=COALESCE(NULLIF(EXCLUDED.name,''),organizations.name)
+     RETURNING id::text,name,clerk_organization_id`,
+    [
+      asUuid(`clerk-org:${clerkOrganizationId}`),
+      organizationName || `Organization ${clerkOrganizationId.slice(-8)}`,
+      process.env.DEFAULT_TIMEZONE || "Asia/Kolkata",
+      clerkOrganizationId,
+    ],
+  );
+  const row = inserted.rows[0];
+  return {
+    organizationId:
+      row.id === demoOrganizationUuid ? demoOrganizationId : row.id,
+    clerkOrganizationId,
+    name: row.name,
+  };
+}
 
 export async function upsertClerkUser(
   profile: ClerkUserProfile,
 ): Promise<User> {
+  const mapped = await resolveOrganizationForClerkId(
+    profile.clerkOrganizationId,
+    profile.organizationName,
+  );
+  const organizationId = mapped.organizationId || profile.organizationId || demoOrganizationId;
+  const organizationUuid =
+    organizationId === demoOrganizationId ? demoOrganizationUuid : asUuid(organizationId);
   const user: User = {
     id: profile.clerkUserId,
-    organizationId: demoOrganizationId,
+    organizationId,
     email: profile.email,
     name: profile.name || profile.email.split("@")[0] || "RoutePulse user",
     role: validRole(profile.role),
@@ -31,9 +90,10 @@ export async function upsertClerkUser(
   if (!pool) return user;
 
   let saved = await pool.query(
-    `UPDATE users SET email=$1,name=$2 WHERE clerk_user_id=$3
+    `UPDATE users SET email=$1,name=$2,role=$3::user_role
+     WHERE clerk_user_id=$4 AND organization_id=$5
      RETURNING id::text,organization_id::text,email,name,role`,
-    [user.email, user.name, profile.clerkUserId],
+    [user.email, user.name, user.role, profile.clerkUserId, organizationUuid],
   );
   if (!saved.rowCount) {
     saved = await pool.query(
@@ -43,8 +103,8 @@ export async function upsertClerkUser(
        name=EXCLUDED.name,role=EXCLUDED.role,clerk_user_id=EXCLUDED.clerk_user_id
        RETURNING id::text,organization_id::text,email,name,role`,
       [
-        asUuid(profile.clerkUserId),
-        demoOrganizationUuid,
+        asUuid(`${profile.clerkUserId}:${organizationUuid}`),
+        organizationUuid,
         user.email,
         user.name,
         user.role,

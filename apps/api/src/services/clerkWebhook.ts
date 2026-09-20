@@ -8,7 +8,24 @@ export async function syncClerkWebhook(raw:Buffer, headers:Record<string,string|
   if (!pool) return {synced:false,mode:'memory'};
   if (payload.type==='user.deleted') { await pool.query(`UPDATE users SET clerk_user_id=NULL WHERE clerk_user_id=$1`,[String(payload.data.id)]);return {synced:true,type:payload.type}; }
   if (!['user.created','user.updated'].includes(payload.type)) return {synced:true,type:payload.type};
-  const data=payload.data; const primary=(data.email_addresses as Array<{id?:string;email_address?:string}>|undefined)?.find(item=>item.id===data.primary_email_address_id)?.email_address||(data.email_addresses as Array<{email_address?:string}>|undefined)?.[0]?.email_address||''; const name=[data.first_name,data.last_name].filter(Boolean).join(' ')||primary.split('@')[0]||'RoutePulse user'; const metadata=(data.public_metadata||{}) as {role?:string};
-  await upsertClerkUser({clerkUserId:String(data.id),email:primary,name,role:metadata.role});
+  const data=payload.data;
+  const primary=(data.email_addresses as Array<{id?:string;email_address?:string}>|undefined)?.find(item=>item.id===data.primary_email_address_id)?.email_address||(data.email_addresses as Array<{email_address?:string}>|undefined)?.[0]?.email_address||'';
+  const name=[data.first_name,data.last_name].filter(Boolean).join(' ')||primary.split('@')[0]||'RoutePulse user';
+  const metadata=(data.public_metadata||{}) as {role?:string};
+  const memberships=(data.organization_memberships as Array<{organization?:{id?:string;name?:string}}>|undefined)||[];
+  if (memberships.length) {
+    for (const membership of memberships) {
+      await upsertClerkUser({
+        clerkUserId:String(data.id),
+        email:primary,
+        name,
+        role:metadata.role,
+        clerkOrganizationId:membership.organization?.id,
+        organizationName:membership.organization?.name,
+      });
+    }
+  } else {
+    await upsertClerkUser({clerkUserId:String(data.id),email:primary,name,role:metadata.role});
+  }
   return {synced:true,type:payload.type};
 }

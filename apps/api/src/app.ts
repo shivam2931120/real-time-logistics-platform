@@ -10,7 +10,8 @@ import {
   drivers,
   notificationRecords,
   orders,
-  organizationSettings,
+  saveOrganizationSettings,
+  settingsForOrganization,
   parcelScans,
   supportMessages,
   supportTickets,
@@ -172,7 +173,7 @@ const restore = <T extends object>(target: T, snapshot: T) => {
 };
 const etaFor = (order: Order) => {
   const driver = drivers.find((item) => item.id === order.assignedDriverId);
-  return { ...order, ...estimateEta(order, driver, organizationSettings) };
+  return { ...order, ...estimateEta(order, driver, settingsForOrganization(order.organizationId)) };
 };
 const audit = async (
   user: User,
@@ -199,7 +200,7 @@ const notifySafely = async (order: Order, template: string) => {
   let status: "queued" | "sent" | "simulated" | "failed" = "failed";
   let mode: string = notificationMode();
   try {
-    if (!organizationSettings.notificationsEnabled) {
+    if (!settingsForOrganization(order.organizationId).notificationsEnabled) {
       status = "simulated";
       mode = "disabled";
       return { status, mode };
@@ -1044,7 +1045,7 @@ export function createApp() {
           const transitions = geofenceTransitions(
             order,
             driver.location,
-            organizationSettings.geofenceRadiusMeters,
+            settingsForOrganization(order.organizationId).geofenceRadiusMeters,
           );
           if (!transitions.length) continue;
           for (const transition of transitions) {
@@ -1712,8 +1713,16 @@ export function createApp() {
         .slice(0, 200),
     ),
   );
+  app.get("/api/organization", (req, res) => {
+    const settings = settingsForOrganization(req.user!.organizationId);
+    return res.json({
+      organizationId: settings.organizationId,
+      name: settings.name,
+      timezone: settings.timezone,
+    });
+  });
   app.get("/api/settings", permit("admin", "dispatcher"), (req, res) =>
-    res.json(organizationSettings),
+    res.json(settingsForOrganization(req.user!.organizationId)),
   );
   app.put("/api/settings", permit("admin"), async (req, res, next) => {
     try {
@@ -1726,22 +1735,24 @@ export function createApp() {
           notificationsEnabled: z.boolean(),
         })
         .parse(req.body);
-      const snapshot = structuredClone(organizationSettings);
-      Object.assign(organizationSettings, body);
+      const settings = settingsForOrganization(req.user!.organizationId);
+      const snapshot = structuredClone(settings);
+      Object.assign(settings, body);
       try {
-        await persistSettings(organizationSettings);
+        await persistSettings(settings);
       } catch (error) {
-        restore(organizationSettings, snapshot);
+        restore(settings, snapshot);
         throw error;
       }
+      saveOrganizationSettings(settings);
       await audit(
         req.user!,
         "organization.settings_updated",
         "organization",
-        organizationSettings.organizationId,
+        settings.organizationId,
         body,
       );
-      return res.json(organizationSettings);
+      return res.json(settings);
     } catch (e) {
       next(e);
     }
@@ -1787,7 +1798,7 @@ export function createApp() {
               ...(body.constraints ?? {}),
               averageSpeedKph:
                 body.constraints?.averageSpeedKph ??
-                organizationSettings.averageSpeedKph,
+                settingsForOrganization(req.user!.organizationId).averageSpeedKph,
               shiftEnd: body.constraints?.shiftEnd ?? driver.shiftEnd,
             },
           ),

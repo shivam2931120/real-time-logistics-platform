@@ -211,6 +211,26 @@ export const organizationSettings: OrganizationSettings = {
   averageSpeedKph: 24,
   notificationsEnabled: true,
 };
+const organizationSettingsByTenant = new Map<string, OrganizationSettings>([
+  [org, organizationSettings],
+]);
+export const settingsForOrganization = (organizationId: string) => {
+  const existing = organizationSettingsByTenant.get(organizationId);
+  if (existing) return existing;
+  const created: OrganizationSettings = {
+    ...organizationSettings,
+    organizationId,
+    name: organizationId === org ? organizationSettings.name : "New organization",
+  };
+  organizationSettingsByTenant.set(organizationId, created);
+  return created;
+};
+export const saveOrganizationSettings = (settings: OrganizationSettings) => {
+  organizationSettingsByTenant.set(settings.organizationId, settings);
+  if (settings.organizationId === org) {
+    Object.assign(organizationSettings, settings);
+  }
+};
 const deliveryPins = new Map<string, string>();
 const pinHash = (value: string) =>
   createHash("sha256").update(value).digest("hex");

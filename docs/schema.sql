@@ -1,8 +1,14 @@
 DO $$ BEGIN CREATE TYPE user_role AS ENUM ('admin','dispatcher','driver','customer'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN CREATE TYPE order_status AS ENUM ('pending','assigned','picked_up','in_transit','delivered','failed','cancelled'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 CREATE TABLE IF NOT EXISTS organizations (id uuid PRIMARY KEY, name text NOT NULL, timezone text NOT NULL DEFAULT 'Asia/Kolkata', created_at timestamptz NOT NULL DEFAULT now());
+ALTER TABLE organizations ADD COLUMN IF NOT EXISTS clerk_organization_id text;
+DROP INDEX IF EXISTS organizations_clerk_id_idx;
+CREATE UNIQUE INDEX organizations_clerk_id_idx ON organizations(clerk_organization_id);
 INSERT INTO organizations(id,name,timezone) VALUES('00000000-0000-0000-0000-000000000001','RoutePulse','Asia/Kolkata') ON CONFLICT(id) DO NOTHING;
 CREATE TABLE IF NOT EXISTS users (id uuid PRIMARY KEY, organization_id uuid NOT NULL REFERENCES organizations(id), email citext NOT NULL, name text NOT NULL, role user_role NOT NULL, created_at timestamptz NOT NULL DEFAULT now(), UNIQUE(organization_id,email));
+ALTER TABLE users ADD COLUMN IF NOT EXISTS clerk_user_id text;
+DROP INDEX IF EXISTS users_clerk_user_id_idx;
+CREATE UNIQUE INDEX IF NOT EXISTS users_org_clerk_user_id_idx ON users(organization_id,clerk_user_id) WHERE clerk_user_id IS NOT NULL;
 CREATE TABLE IF NOT EXISTS drivers (id uuid PRIMARY KEY, organization_id uuid NOT NULL REFERENCES organizations(id), user_id uuid NOT NULL UNIQUE REFERENCES users(id), status text NOT NULL CHECK(status IN ('available','busy','offline')), capacity_kg numeric(9,2) NOT NULL CHECK(capacity_kg>0), current_lat double precision, current_lng double precision, last_seen_at timestamptz);
 ALTER TABLE drivers ADD COLUMN IF NOT EXISTS shift_start text;
 ALTER TABLE drivers ADD COLUMN IF NOT EXISTS shift_end text;

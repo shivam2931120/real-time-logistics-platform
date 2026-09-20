@@ -18,7 +18,7 @@ Driver geolocation ──Socket.IO──> validated location store + tenant/trac
 - `apps/web`: role-aware SPA, control tower, orders, live map, analytics, mobile driver surface.
 - `apps/api`: REST API, JWT/RBAC, validation, domain state machine, Socket.IO events, adapters.
 - `packages/shared`: request/response and domain types shared at compile time.
-- PostgreSQL: durable source of truth for the implemented demo tenant; broader Clerk organization mapping remains a deployment task.
+- PostgreSQL: durable source of truth for every mapped organization. Clerk `org_id` claims are provisioned into `organizations.clerk_organization_id`; users are stored as organization memberships with a composite `(organization_id, clerk_user_id)` key.
 - Redis: BullMQ jobs, retry state, horizontal Socket.IO adapter target, distributed rate-limit target.
 
 ## 3. Domain model
@@ -68,6 +68,7 @@ All private endpoints require `Authorization: Bearer <JWT>`. Demo login accepts 
 | GET/PATCH | `/api/notifications`, `/api/notifications/:id/read` | all                              | in-app history and read state                 |
 | GET/PATCH | `/api/admin/users`, `/api/admin/users/:id/role`     | admin                            | users and Clerk-aligned roles                 |
 | GET       | `/api/admin/audit`                                  | admin                            | tenant audit history                          |
+| GET        | `/api/organization`                                 | authenticated                    | current organization context                  |
 | GET/PUT   | `/api/settings`                                     | operations/admin                 | read/update organization controls             |
 | POST      | `/api/payments/:orderId/checkout`                   | dispatcher/admin/customer target | Razorpay order or demo session                |
 | PATCH     | `/api/customer/orders/:id/reschedule`               | customer owner                   | Change eligible delivery window               |
@@ -126,4 +127,4 @@ Use a container platform supporting long-lived WebSockets for API/workers and a 
 
 ## 11. Configuration modes
 
-Health output reports active persistence, queue, payment, and notification modes. Memory/demo payment modes must never be described as durable, distributed, or financially settled. Production readiness requires managed infrastructure and provider adapters, strong secrets, webhook configuration, Clerk tenant mapping, and security/load/recovery tests.
+Health output reports active persistence, queue, payment, and notification modes. Memory/demo payment modes must never be described as durable, distributed, or financially settled. Production readiness requires managed infrastructure and provider adapters, strong secrets, webhook configuration, Clerk tenant mapping, and security/load/recovery tests. New Clerk organizations are created idempotently on first authenticated request and their settings are isolated by organization.

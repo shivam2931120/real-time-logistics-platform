@@ -1,12 +1,13 @@
 import { createClerkClient } from '@clerk/backend';
 import type { Role, User } from '@routepulse/shared';
 import { pool } from '../db/client.js';
-import { demoOrganizationId, demoOrganizationUuid } from '../db/persistence.js';
-import { upsertClerkUser } from './clerkUserSync.js';
+import { asUuid, demoOrganizationId, demoOrganizationUuid } from '../db/persistence.js';
+import { resolveOrganizationForClerkId, upsertClerkUser } from './clerkUserSync.js';
 
 type ClerkClaims = {
   sub?: string;
   org_id?: string;
+  org_name?: string;
   org_role?: string;
   role?: string;
   email?: string;
@@ -39,20 +40,43 @@ export async function resolveClerkUser(claims: ClerkClaims): Promise<User> {
   const clerkUserId = String(claims.sub || '');
   if (!clerkUserId) throw new Error('Clerk session is missing a subject');
 
+  const organization = pool
+    ? await resolveOrganizationForClerkId(claims.org_id, claims.org_name)
+    : { organizationId: claims.org_id, clerkOrganizationId: claims.org_id, name: claims.org_name };
+  const selectedOrganizationId =
+    organization.organizationId || process.env.DEFAULT_ORGANIZATION_ID;
+  const organizationUuid = selectedOrganizationId
+    ? selectedOrganizationId === demoOrganizationId
+      ? demoOrganizationUuid
+      : asUuid(selectedOrganizationId)
+    : undefined;
+
   if (pool) {
     const result = await pool.query(
       `SELECT id::text,organization_id::text,email,name,role
-       FROM users WHERE clerk_user_id=$1 LIMIT 1`,
-      [clerkUserId],
+       FROM users WHERE clerk_user_id=$1
+       ${organizationUuid ? 'AND organization_id=$2' : ''}
+       ORDER BY created_at ASC LIMIT 1`,
+      organizationUuid ? [clerkUserId, organizationUuid] : [clerkUserId],
     );
     const row = result.rows[0] as { id: string; organization_id: string; email: string; name: string; role: Role } | undefined;
     if (row) {
+      const claimedRole = appRole(claims.role)
+        || appRole(claims.metadata?.role)
+        || appRole(claims.public_metadata?.role)
+        || organizationRoleMap[String(claims.org_role || '')];
+      if (claimedRole && claimedRole !== row.role) {
+        await pool.query(
+          `UPDATE users SET role=$1::user_role WHERE id=$2 AND organization_id=$3`,
+          [claimedRole, row.id, row.organization_id],
+        );
+      }
       return {
         id: row.id,
         organizationId: row.organization_id === demoOrganizationUuid ? demoOrganizationId : row.organization_id,
         email: row.email,
         name: row.name,
-        role: appRole(row.role) || 'customer',
+        role: claimedRole || appRole(row.role) || 'customer',
       };
     }
 
@@ -66,14 +90,20 @@ export async function resolveClerkUser(claims: ClerkClaims): Promise<User> {
         clerkUserId,
         email,
         name: [clerkUser.firstName, clerkUser.lastName].filter(Boolean).join(' ') || email.split('@')[0] || 'RoutePulse user',
-        role: clerkUser.publicMetadata.role,
+        role: roleFromClerkClaims({
+          ...claims,
+          role: (clerkUser.publicMetadata as { role?: unknown }).role as string | undefined,
+        }),
+        organizationId: selectedOrganizationId,
+        clerkOrganizationId: claims.org_id,
+        organizationName: organization.name,
       });
     }
   }
 
   return {
     id: clerkUserId,
-    organizationId: process.env.DEFAULT_ORGANIZATION_ID || claims.org_id || demoOrganizationId,
+    organizationId: selectedOrganizationId || demoOrganizationId,
     name: String(claims.name || claims.first_name || 'RoutePulse user'),
     email: String(claims.email || ''),
     role: roleFromClerkClaims(claims),

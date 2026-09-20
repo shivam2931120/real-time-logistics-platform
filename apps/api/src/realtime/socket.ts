@@ -4,7 +4,7 @@ import { verifyToken } from "@clerk/backend";
 import {
   drivers,
   orders,
-  organizationSettings,
+  settingsForOrganization,
   supportTickets,
   users,
 } from "../domain/store.js";
@@ -148,7 +148,7 @@ export function configureSockets(io: Server) {
           const transitions = geofenceTransitions(
             o,
             d.location,
-            organizationSettings.geofenceRadiusMeters,
+            settingsForOrganization(user.organizationId).geofenceRadiusMeters,
           );
           if (!transitions.length) return;
           const timestamp = new Date().toISOString();

@@ -9,6 +9,7 @@ import type {
   Order,
   OrderStatus,
   OrganizationSettings,
+  OrganizationSummary,
   ParcelScan,
   ParcelScanStage,
   Role,
@@ -157,6 +158,7 @@ export const api = {
     setToken("");
   },
   me: () => request<User>("/api/me"),
+  organization: () => request<OrganizationSummary>("/api/organization"),
   orders: () => request<Order[]>("/api/orders"),
   drivers: () => request<Driver[]>("/api/drivers"),
   driverMe: () => request<Driver>("/api/drivers/me"),
