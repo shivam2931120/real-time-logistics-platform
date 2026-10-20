@@ -170,8 +170,8 @@ export const api = {
       "/api/auth/demo",
       { method: "POST", body: JSON.stringify({ email, password }) },
     );
-    setDemoSession(true);
     setToken(data.token);
+    setDemoSession(true);
     return data.user;
   },
   logout: () => {

@@ -102,8 +102,7 @@ export default function AuthPage() {
       if (mode === "sign-in") {
         if (demoRole) {
           await api.demoLogin(email, password);
-          window.location.hash = "#/overview";
-          window.location.reload();
+          window.history.replaceState(null, "", "/#/overview");
           return;
         }
         if (!signIn || !setActiveSignIn) throw new Error("Authentication is still loading");

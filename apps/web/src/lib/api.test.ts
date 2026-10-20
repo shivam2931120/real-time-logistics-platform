@@ -1,11 +1,28 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { api, setToken, setTokenProvider } from "./api";
+import { api, setDemoSession, setToken, setTokenProvider } from "./api";
 
 describe("API authentication", () => {
   beforeEach(() => {
     setTokenProvider(null);
     setToken("");
+    setDemoSession(false);
     vi.restoreAllMocks();
+  });
+
+  it("stores the token before announcing a demo session to the app", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      token: "demo-session-token",
+      user: { id: "u_dispatch", role: "dispatcher" },
+    }), { status: 200 })));
+    const announced: string[] = [];
+    const onSession = () => announced.push(api.token());
+    window.addEventListener("routepulse-demo-session", onSession);
+    try {
+      await api.demoLogin("demo@example.com", "demo-password");
+      expect(announced).toEqual(["demo-session-token"]);
+    } finally {
+      window.removeEventListener("routepulse-demo-session", onSession);
+    }
   });
 
   it.each(["demo", "clerk"])("allows a hosted instance to wake up before completing %s sign-in", async (mode) => {

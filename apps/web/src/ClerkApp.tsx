@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { AuthenticateWithRedirectCallback, useAuth, useClerk } from "@clerk/clerk-react";
 import App from "./App";
 import AuthPage from "./components/AuthPage";
-import { api, isDemoSession, setDemoSession, setToken, setTokenProvider } from "./lib/api";
+import { api, isDemoSession, setToken, setTokenProvider } from "./lib/api";
 import { TrackingPage } from "./pages/TrackingPage";
 export default function ClerkApp() {
   const { isLoaded, isSignedIn, getToken } = useAuth();
@@ -40,8 +40,6 @@ export default function ClerkApp() {
           await api.me();
           if (!cancelled) setReady(true);
         } catch (reason) {
-          setDemoSession(false);
-          setToken("");
           if (!cancelled) setError(reason instanceof Error ? reason.message : "Unable to authorize the demo workspace");
         }
       })();
@@ -90,6 +88,7 @@ export default function ClerkApp() {
         <main className="splash auth-error" role="alert">
           <h1>Demo workspace unavailable</h1>
           <p>{error}</p>
+          <button className="button primary" onClick={() => setAttempt((value) => value + 1)}>Try again</button>
           <button className="button primary" onClick={() => { api.logout(); setError(""); }}>Return to sign in</button>
         </main>
       );

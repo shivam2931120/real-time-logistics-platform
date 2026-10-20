@@ -2,6 +2,7 @@ import "@testing-library/jest-dom";
 import { fireEvent, render, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import AuthPage from "./AuthPage";
+import { api } from "../lib/api";
 
 const signIn = {
   create: vi.fn(),
@@ -26,6 +27,29 @@ describe("AuthPage", () => {
     signIn.attemptFirstFactor.mockReset();
     signIn.attemptSecondFactor.mockReset();
     setActiveSignIn.mockReset();
+  });
+
+  it("opens a demo workspace from a nested URL without reloading the page", async () => {
+    window.history.replaceState({}, "", "/support");
+    const login = vi.spyOn(api, "demoLogin").mockResolvedValue({
+      id: "u_driver1", organizationId: "org_demo", role: "driver",
+      name: "Demo Driver", email: "driver@example.com",
+    });
+    try {
+      const view = render(<AuthPage />);
+      fireEvent.click(view.getAllByRole("button", { name: /Use credentials/ })[2]);
+      fireEvent.click(view.getByRole("button", { name: "Enter demo workspace" }));
+      await waitFor(() => {
+        expect(login).toHaveBeenCalledWith(
+          "chieftainofthedunedain.bgp+routepulse.driver@gmail.com",
+          "RoutePulseDemo!Driver2026",
+        );
+        expect(window.location.pathname).toBe("/");
+        expect(window.location.hash).toBe("#/overview");
+      });
+    } finally {
+      login.mockRestore();
+    }
   });
 
   it("offers one public credential card for each role", () => {
