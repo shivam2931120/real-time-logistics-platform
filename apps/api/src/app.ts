@@ -812,7 +812,7 @@ export function createApp() {
       data = data.filter((o) => o.assignedDriverId === driver?.id);
     }
     if (req.user!.role === "customer")
-      data = data.filter((o) => o.customerEmail === req.user!.email);
+      data = data.filter((order) => canAccessOrder(req.user!, order));
     const status = req.query.status;
     if (typeof status === "string")
       data = data.filter((o) => o.status === status);

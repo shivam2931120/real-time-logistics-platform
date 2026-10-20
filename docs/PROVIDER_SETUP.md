@@ -2,6 +2,14 @@
 
 The source tree contains no provider secrets. Enter backend values in local `apps/api/.env` and frontend values in `apps/web/.env.local` for development. For deployment, use Render/Vercel dashboard environment variables.
 
+The current hosted API is `https://routepulse-api-snwq.onrender.com`. Set Vercel's production `VITE_API_URL` to that URL and redeploy the frontend after changing it: Vite embeds the value during the build. The former `https://routepulse-api.onrender.com` endpoint is unavailable.
+
+Render must check `/health/ready`, which verifies startup and required configuration, rather than the liveness-only `/health` endpoint. Free web instances can take about a minute to wake; sandbox sign-in allows 90 seconds for that first request.
+
+The replacement `routepulse-db` database created on October 20, 2026 is a free Render PostgreSQL instance and expires November 19, 2026. Upgrade or migrate it before that date. The former Supabase database is unavailable; its historical records have not been recovered. The new database contains the demo fixtures and records created since restoration.
+
+The restored free Render API uses inline simulated email because free web instances cannot connect to SMTP ports. Enable an HTTPS email provider or move to a service plan that supports SMTP before restoring `GOOGLE_SMTP_USER` and `GOOGLE_SMTP_APP_PASSWORD`. Redis is not required in inline mode; the old Upstash endpoint is unavailable.
+
 The application now has separate liveness/readiness checks, durable driver-location writes, idempotent payment webhooks, customer return requests, and a deployable BullMQ notification worker. Local development can still use the simulated adapters; hosted production should enable the real providers listed below.
 
 | Provider    | Put these variables here                                                                                                                            |

@@ -37,6 +37,8 @@ import type {
 export type { RouteOptimizationConstraints, RoutePlan } from "@routepulse/shared";
 const base = import.meta.env.VITE_API_URL || "http://127.0.0.1:4000";
 const REQUEST_TIMEOUT_MS = 20_000;
+// Free hosted instances may need about a minute to wake before handling login.
+const SIGN_IN_TIMEOUT_MS = 90_000;
 let token = localStorage.getItem("routepulse_token") || "";
 let demoSession = localStorage.getItem("routepulse_demo_session") === "1";
 type TokenProvider = (options?: { skipCache?: boolean }) => Promise<string | null>;
@@ -78,7 +80,10 @@ async function request<T>(path: string, options: RequestInit = {}, canRefresh = 
   const relayAbort = () => controller.abort();
   if (externalSignal?.aborted) controller.abort();
   else externalSignal?.addEventListener("abort", relayAbort, { once: true });
-  const timeout = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timeout = window.setTimeout(
+    () => controller.abort(),
+    path === "/api/auth/demo" ? SIGN_IN_TIMEOUT_MS : REQUEST_TIMEOUT_MS,
+  );
   let res: Response;
   try {
     res = await fetch(`${base}${path}`, {

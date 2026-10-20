@@ -1,7 +1,8 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import request from "supertest";
 import { createHmac } from "node:crypto";
 import { createApp } from "../src/app.js";
+import { demoCredentials } from "../src/services/demoAuth.js";
 import {
   auditRecords,
   deliveryExceptions,
@@ -22,6 +23,24 @@ async function token(role: string) {
   return (await request(app).post("/api/auth/demo").send({ role })).body.token;
 }
 describe("API", () => {
+  it("lists only the sandbox customer's accessible delivery in Clerk mode", async () => {
+    vi.stubEnv("AUTH_MODE", "clerk");
+    vi.stubEnv("DEMO_AUTH_ENABLED", "true");
+    try {
+      const credential = demoCredentials.find((item) => item.role === "customer")!;
+      const login = await request(app).post("/api/auth/demo").send({
+        email: credential.email,
+        password: credential.password,
+      });
+      expect(login.status).toBe(200);
+      const response = await request(app).get("/api/orders")
+        .set("authorization", `Bearer ${login.body.token}`);
+      expect(response.status).toBe(200);
+      expect(response.body.map((order: { id: string }) => order.id)).toEqual(["ord_1002"]);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
   beforeEach(() => {
     orders.splice(
       0,
@@ -403,6 +422,7 @@ describe("API", () => {
         driverId: "d_rohan",
         orderIds: ["ord_1001", "ord_1002"],
         constraints: {
+          shiftEnd: new Date(Date.now() + 24 * 60 * 60_000).toISOString(),
           serviceMinutes: 4,
           maxRouteMinutes: 600,
           respectTimeWindows: true,

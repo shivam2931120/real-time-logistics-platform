@@ -8,6 +8,32 @@ describe("API authentication", () => {
     vi.restoreAllMocks();
   });
 
+  it("allows a hosted instance to wake up before completing demo sign-in", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.stubGlobal("fetch", vi.fn((_url: string, options: RequestInit) =>
+        new Promise<Response>((resolve, reject) => {
+          const timer = window.setTimeout(() => resolve(new Response(JSON.stringify({
+            token: "demo-token",
+            user: { id: "u_dispatch", role: "dispatcher" },
+          }), { status: 200 })), 60_000);
+          options.signal?.addEventListener("abort", () => {
+            window.clearTimeout(timer);
+            reject(new DOMException("Aborted", "AbortError"));
+          }, { once: true });
+        }),
+      ));
+      const result = expect(api.login("dispatcher")).resolves.toMatchObject({
+        id: "u_dispatch",
+      });
+      await vi.advanceTimersByTimeAsync(60_000);
+      await result;
+      expect(api.token()).toBe("demo-token");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("refreshes an expired Clerk token and retries the request once", async () => {
     let currentToken = "stale-token";
     const provider = vi.fn(async (options?: { skipCache?: boolean }) => {

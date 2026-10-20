@@ -1,6 +1,7 @@
 import "dotenv/config";
 import { io } from "socket.io-client";
 import { Pool } from "pg";
+import { demoCredentials } from "../src/services/demoAuth.js";
 
 const base = process.env.API_URL || "http://127.0.0.1:4000";
 function assert(condition: unknown, message: string): asserts condition {
@@ -26,13 +27,19 @@ const request = async <T>(
     );
   return body;
 };
-const login = async (role: string) =>
-  request<{ token: string }>("/api/auth/demo", undefined, {
+const login = async (role: string) => {
+  const credential = demoCredentials.find((item) => item.role === role);
+  const body = health.auth.startsWith("clerk") && credential
+    ? { email: credential.email, password: credential.password }
+    : { role };
+  return request<{ token: string }>("/api/auth/demo", undefined, {
     method: "POST",
-    body: JSON.stringify({ role }),
+    body: JSON.stringify(body),
   });
+};
 
 const health = await request<{
+  auth: string;
   persistence: string;
   queue: string;
   payment: string;

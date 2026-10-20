@@ -38,6 +38,16 @@ npm run dev
 
 Open `http://localhost:5173`. Choose a role on the demo login screen. The API is at `http://localhost:4000`; `GET /health` reports active adapters and `GET /health/ready` reports configuration readiness.
 
+For a local PostgreSQL-backed workspace, start Docker and run:
+
+```bash
+npm run dev:local
+```
+
+This creates missing app environment files without replacing existing ones, starts PostgreSQL and Redis, waits for them to become healthy, migrates and seeds the local demo database, then starts the API and web app. Use `npm run setup:local` to prepare infrastructure separately. This setup command requires a local database and development demo authentication.
+
+If API requests return `503` with “still initializing durable services”, check `GET /health/ready` and the API startup log. A configured but stopped PostgreSQL database prevents startup; `npm run setup:local` starts the local services and prepares the schema.
+
 With a local `apps/api/.env` and Docker services, orders, drivers, and order events are loaded from PostgreSQL and mutation writes are persisted. Environment files are intentionally ignored by Git. If `DATABASE_URL` is omitted, the API falls back to memory for lightweight UI work. Notification delivery is simulated unless a provider is configured, and demo payment confirmation is not financial settlement.
 
 ## Enable infrastructure
