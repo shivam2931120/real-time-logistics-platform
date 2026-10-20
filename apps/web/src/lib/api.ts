@@ -82,7 +82,9 @@ async function request<T>(path: string, options: RequestInit = {}, canRefresh = 
   else externalSignal?.addEventListener("abort", relayAbort, { once: true });
   const timeout = window.setTimeout(
     () => controller.abort(),
-    path === "/api/auth/demo" ? SIGN_IN_TIMEOUT_MS : REQUEST_TIMEOUT_MS,
+    path === "/api/auth/demo" || path === "/api/me"
+      ? SIGN_IN_TIMEOUT_MS
+      : REQUEST_TIMEOUT_MS,
   );
   let res: Response;
   try {

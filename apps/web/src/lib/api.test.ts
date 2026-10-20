@@ -8,27 +8,30 @@ describe("API authentication", () => {
     vi.restoreAllMocks();
   });
 
-  it("allows a hosted instance to wake up before completing demo sign-in", async () => {
+  it.each(["demo", "clerk"])("allows a hosted instance to wake up before completing %s sign-in", async (mode) => {
     vi.useFakeTimers();
     try {
       vi.stubGlobal("fetch", vi.fn((_url: string, options: RequestInit) =>
         new Promise<Response>((resolve, reject) => {
-          const timer = window.setTimeout(() => resolve(new Response(JSON.stringify({
+          const payload = mode === "demo" ? {
             token: "demo-token",
             user: { id: "u_dispatch", role: "dispatcher" },
-          }), { status: 200 })), 60_000);
+          } : { id: "u_dispatch", role: "dispatcher" };
+          const timer = window.setTimeout(() => resolve(new Response(
+            JSON.stringify(payload), { status: 200 },
+          )), 60_000);
           options.signal?.addEventListener("abort", () => {
             window.clearTimeout(timer);
             reject(new DOMException("Aborted", "AbortError"));
           }, { once: true });
         }),
       ));
-      const result = expect(api.login("dispatcher")).resolves.toMatchObject({
+      const result = expect(mode === "demo" ? api.login("dispatcher") : api.me()).resolves.toMatchObject({
         id: "u_dispatch",
       });
       await vi.advanceTimersByTimeAsync(60_000);
       await result;
-      expect(api.token()).toBe("demo-token");
+      if (mode === "demo") expect(api.token()).toBe("demo-token");
     } finally {
       vi.useRealTimers();
     }
